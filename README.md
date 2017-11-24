@@ -1,8 +1,11 @@
-# ICNet_tensorflow
+# ICNet Tensorflow
 
-This a fork from (https://github.com/UndeadBlow/ICNet-tensorflow) repository. Some features were added, some removed. I've created that fork for myself, but maybe you will find it usefull too, because that version is more for training from scratch, while original repo more for inference.
+This is fork from (https://github.com/hellochick/ICNet-tensorflow) repository. Some features were added, some removed. I've created that fork for myself, but maybe you will find it usefull too, because that version is more for training from scratch, while original repo more for inference.
+I tried to create system that looks more like Tensorflow Models Object Detection API.
 
-## Differences with original (Important!!!)
+ICNet original paper: https://arxiv.org/abs/1704.08545. Also check citation in the end.
+
+## Features of that repository
 
 Here is only list of changes. How to use them see below or in code directly.
 
@@ -24,7 +27,7 @@ Here is only list of changes. How to use them see below or in code directly.
 ## Update
 
 #### 2017/11/23:
-1. Forked by me initial changes was done (described above in differences section). Models now stored in repository.
+1. Forked by me. Initial changes was done (described above in differences section). Models now stored in repository.
 
 #### 2017/11/15:
 1. Support `training phase`, you can train on your own dataset. Please read the guide below.
@@ -57,7 +60,10 @@ Perform in single-scaled model on the cityscapes validation datase.
 | train_30k   | **65.56/67.7** | **2.14%** |
 | trainval_90k| **78.44%**    | None |
 
-Example of usag:
+If you want to use it for training validation, use parameter --repeated-eval. In that case model will run endless and will evaluate one time per --eval-interval period if new checkpoint comes.
+Also if you want to select best valid model, you need to setup --best-models-dir.
+
+Example of usage:
 ```
 python evaluate.py --model other --snapshot-dir=test --repeated-eval --data-list some_valid_list.txt --best-models-dir ./best_models
 ```
@@ -93,11 +99,11 @@ PRETRAINED_MODEL = './model/icnet_cityscapes_trainval_90k_bnnomerge.npy'
 SNAPSHOT_DIR = './test/'
 SAVE_NUM_IMAGES = 8
 SAVE_PRED_EVERY = 150
-
+```
 Please note, that some of that parameters, like IMG_MEAN, will be used in inference and evaluation procedure.
 
 Also change labels in tools.py with respect to your classes.
-```
+
 Also **set the loss function weight** (line 38-40) descibed in the paper:
 ```
 # Loss Function = LAMBDA1 * sub4_loss + LAMBDA2 * sub24_loss + LAMBDA3 * sub124_loss
@@ -105,6 +111,12 @@ LAMBDA1 = 0.4
 LAMBDA2 = 0.4
 LAMBDA3 = 1.0
 ```
+
+If you want to use classes weights, you need to pass argument --use-class-weights and setup class weights value in train.py:
+```
+CLASS_WEIGHTS = [1.0, 1.0, 2.0]
+```
+
 **3.** Run following command and **decide whether to update mean/var or train beta/gamma variable**. Remember to choose `--model=others`.
 ```
 python train.py --update-mean-var --train-beta-gamma --not-restore-last
@@ -115,13 +127,6 @@ python inference.py --img-path=YOUR_OWN_IMAGE
 ```
 
 Also you can run model on video with utils.py script in dataset directory, but it is a little hardcoded for myself, so success is on your own.
-### Result ( inference with my own data )
-
-Input                      |  Output
-:-------------------------:|:-------------------------:
-![](https://github.com/hellochick/ICNet_tensorflow/blob/master/input/indoor1.jpg)  |  ![](https://github.com/hellochick/ICNet-tensorflow/blob/master/output/indoor1.jpg)
-![](https://github.com/hellochick/ICNet_tensorflow/blob/master/input/indoor3.jpg)  |  ![](https://github.com/hellochick/ICNet-tensorflow/blob/master/output/indoor3.jpg)
-
 
 ## Citation
     @article{zhao2017icnet,
