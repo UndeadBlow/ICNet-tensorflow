@@ -1,0 +1,9 @@
+best_models/
+model.*
+checkpoint
+snapshots/
+test/
+*.zip
+output/
+0.7656/
+__pycache__

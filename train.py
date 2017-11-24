@@ -13,31 +13,35 @@ import tensorflow as tf
 import numpy as np
 
 from model import ICNet_BN
-from tools import decode_labels, prepare_label
+from tools import decode_labels, prepare_label, inv_preprocess
 from image_reader import ImageReader
 
-IMG_MEAN = np.array((103.939, 116.779, 123.68), dtype=np.float32)
+# Mean taken from Mapilary Vistas dataset
+IMG_MEAN = np.array((106.33906592, 116.77648721, 119.91756518), dtype = np.float32)
 
-DATA_LIST_PATH = '/home/yaaaaa0127/ADEChallengeData2016/list/train_list2.txt'
-BATCH_SIZE = 48
-IGNORE_LABEL = 0
-INPUT_SIZE = '480,480'
-LEARNING_RATE = 1e-3
+BATCH_SIZE = 8
+DATA_LIST_PATH = '/mnt/Data/Datasets/Segmentation/mapillary_vistas_3_class/list.txt'
+IGNORE_LABEL = 255
+INPUT_SIZE = '800,800'
+LEARNING_RATE = 5e-3
 MOMENTUM = 0.9
-NUM_CLASSES = 27
-NUM_STEPS = 60001
-POWER = 0.9
+NUM_CLASSES = 3
+NUM_STEPS = 100000
+POWER = 0.96
 RANDOM_SEED = 1234
 WEIGHT_DECAY = 0.0001
 PRETRAINED_MODEL = './model/icnet_cityscapes_trainval_90k_bnnomerge.npy'
 SNAPSHOT_DIR = './snapshots/'
-SAVE_NUM_IMAGES = 4
-SAVE_PRED_EVERY = 50
+SAVE_NUM_IMAGES = 8
+SAVE_PRED_EVERY = 150
 
 # Loss Function = LAMBDA1 * sub4_loss + LAMBDA2 * sub24_loss + LAMBDA3 * sub124_loss
-LAMBDA1 = 0.16
+LAMBDA1 = 0.4
 LAMBDA2 = 0.4
 LAMBDA3 = 1.0
+
+USE_CLASS_WEIGHTS = True
+CLASS_WEIGHTS = [1.0, 1.0, 3.0]
 
 def get_arguments():
     parser = argparse.ArgumentParser(description="ICNet")
@@ -75,6 +79,10 @@ def get_arguments():
                         help="whether to get update_op from tf.Graphic_Keys")
     parser.add_argument("--train-beta-gamma", action="store_true",
                         help="whether to train beta & gamma in bn layer")
+    parser.add_argument("--not-restore-last", action="store_true",
+                        help="Whether to not restore last (FC) layers.")
+    parser.add_argument("--use-class-weights", action="store_true",
+                        help="Use or not class weights. Values must be defined in script manually")
     return parser.parse_args()
 
 def save(saver, sess, logdir, step):
@@ -83,7 +91,7 @@ def save(saver, sess, logdir, step):
     
    if not os.path.exists(logdir):
       os.makedirs(logdir)
-   saver.save(sess, checkpoint_path, global_step=step)
+   saver.save(sess, checkpoint_path, global_step = step)
    print('The checkpoint has been created.')
 
 def load(saver, sess, ckpt_path):
@@ -98,7 +106,7 @@ def get_mask(gt, num_classes, ignore_label):
 
     return indices
 
-def create_loss(output, label, num_classes, ignore_label):
+def create_loss(output, label, num_classes, ignore_label, use_w = False):
     raw_pred = tf.reshape(output, [-1, num_classes])
     label = prepare_label(label, tf.stack(output.get_shape()[1:3]), num_classes=num_classes, one_hot=False)
     label = tf.reshape(label, [-1,])
@@ -107,7 +115,21 @@ def create_loss(output, label, num_classes, ignore_label):
     gt = tf.cast(tf.gather(label, indices), tf.int32)
     pred = tf.gather(raw_pred, indices)
 
-    loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=pred, labels=gt)
+    loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits = pred, labels = gt)
+
+    # Make mistakes for class N more important for network
+    if use_w:
+        if len(CLASS_WEIGHTS) != num_classes:
+            print('Incorrect class weights, it will be not used')
+        else:
+            mask = tf.zeros_like(loss)
+
+            for i, w in enumerate(CLASS_WEIGHTS):
+                mask = mask + tf.cast(tf.equal(gt, i), tf.float32) * tf.constant(w)
+            #mask = tf.cast(tf.equal(gt, 2), tf.float32) * tf.constant(2)
+            #loss = loss * tf.add(mask, 1)
+            loss = loss * mask
+
     reduced_loss = tf.reduce_mean(loss)
 
     return reduced_loss
@@ -123,7 +145,6 @@ def main():
     
     with tf.name_scope("create_inputs"):
         reader = ImageReader(
-            ' ',
             args.data_list,
             input_size,
             args.random_scale,
@@ -139,20 +160,74 @@ def main():
     sub24_out = net.layers['sub24_out']
     sub124_out = net.layers['conv6_cls']
 
+    fc_list = ['conv6_cls']
+
     restore_var = tf.global_variables()
     all_trainable = [v for v in tf.trainable_variables() if ('beta' not in v.name and 'gamma' not in v.name) or args.train_beta_gamma]
+    restore_var = [v for v in tf.global_variables() if not (len([f for f in fc_list if f in v.name])) or not args.not_restore_last]
    
-    loss_sub4 = create_loss(sub4_out, label_batch, args.num_classes, args.ignore_label)
-    loss_sub24 = create_loss(sub24_out, label_batch, args.num_classes, args.ignore_label)
-    loss_sub124 = create_loss(sub124_out, label_batch, args.num_classes, args.ignore_label)
+    for v in restore_var:
+        print(v.name)
+
+    loss_sub4 = create_loss(sub4_out, label_batch, args.num_classes, args.ignore_label, args.use_class_weights)
+    loss_sub24 = create_loss(sub24_out, label_batch, args.num_classes, args.ignore_label, args.use_class_weights)
+    loss_sub124 = create_loss(sub124_out, label_batch, args.num_classes, args.ignore_label, args.use_class_weights)
     l2_losses = [args.weight_decay * tf.nn.l2_loss(v) for v in tf.trainable_variables() if 'weights' in v.name]
     
-    reduced_loss = LAMBDA1 * loss_sub4 +  LAMBDA2 * loss_sub24 + LAMBDA3 * loss_sub124 + tf.add_n(l2_losses)
+    loss = LAMBDA1 * loss_sub4 +  LAMBDA2 * loss_sub24 + LAMBDA3 * loss_sub124
+
+    reduced_loss = loss + tf.add_n(l2_losses)
+
+
+    ##############################
+    # visualisation and summary
+    ##############################
+
+
+    # Processed predictions: for visualisation.
+
+    # Sub 4
+    raw_output_up4 = tf.image.resize_bilinear(sub4_out, tf.shape(image_batch)[1:3,])
+    raw_output_up4 = tf.argmax(raw_output_up4, dimension = 3)
+    pred4 = tf.expand_dims(raw_output_up4, dim = 3)
+    # Sub 24
+    raw_output_up24 = tf.image.resize_bilinear(sub24_out, tf.shape(image_batch)[1:3,])
+    raw_output_up24 = tf.argmax(raw_output_up24, dimension=3)
+    pred24 = tf.expand_dims(raw_output_up24, dim=3)
+    # Sub 124
+    raw_output_up124 = tf.image.resize_bilinear(sub124_out, tf.shape(image_batch)[1:3,])
+    raw_output_up124 = tf.argmax(raw_output_up124, dimension=3)
+    pred124 = tf.expand_dims(raw_output_up124, dim=3)
+
+    images_summary = tf.py_func(inv_preprocess, [image_batch, SAVE_NUM_IMAGES, IMG_MEAN], tf.uint8)
+    labels_summary = tf.py_func(decode_labels, [label_batch,SAVE_NUM_IMAGES, args.num_classes], tf.uint8)
+
+    preds_summary4 = tf.py_func(decode_labels, [pred4, SAVE_NUM_IMAGES, args.num_classes], tf.uint8)
+    preds_summary24 = tf.py_func(decode_labels, [pred24, SAVE_NUM_IMAGES, args.num_classes], tf.uint8)
+    preds_summary124 = tf.py_func(decode_labels, [pred124, SAVE_NUM_IMAGES, args.num_classes], tf.uint8)
+    
+    total_images_summary = tf.summary.image('images', 
+                                     tf.concat(axis=2, values=[images_summary, labels_summary, preds_summary4, preds_summary24, preds_summary124]), 
+                                     max_outputs=SAVE_NUM_IMAGES) # Concatenate row-wise.
+
+    total_summary = [total_images_summary]
+
+    loss_summary = tf.summary.scalar('Total_loss', reduced_loss)
+
+    total_summary.append(loss_summary)
+    
+    summary_writer = tf.summary.FileWriter(args.snapshot_dir,
+                                           graph=tf.get_default_graph())
+    ##############################
+    ##############################
 
     # Using Poly learning rate policy 
     base_lr = tf.constant(args.learning_rate)
     step_ph = tf.placeholder(dtype=tf.float32, shape=())
     learning_rate = tf.scalar_mul(base_lr, tf.pow((1 - step_ph / args.num_steps), args.power))
+
+    lr_summary = tf.summary.scalar('Learning_rate', learning_rate)
+    total_summary.append(lr_summary)
     
     # Gets moving_mean and moving_variance update operations from tf.GraphKeys.UPDATE_OPS
     if args.update_mean_var == False:
@@ -174,7 +249,7 @@ def main():
     sess.run(init)
     
     # Saver for storing checkpoints of the model.
-    saver = tf.train.Saver(var_list=tf.global_variables(), max_to_keep=5)
+    saver = tf.train.Saver(var_list = tf.global_variables(), max_to_keep = 10)
 
     ckpt = tf.train.get_checkpoint_state(args.snapshot_dir)
     if ckpt and ckpt.model_checkpoint_path:
@@ -183,7 +258,7 @@ def main():
         load(loader, sess, ckpt.model_checkpoint_path)
     else:
         print('Restore from pre-trained model...')
-        net.load(args.restore_from, sess)
+        net.load(args.restore_from, sess, ignore_layers = fc_list)
 
     # Start queue threads.
     threads = tf.train.start_queue_runners(coord=coord, sess=sess)
@@ -194,10 +269,14 @@ def main():
         
         feed_dict = {step_ph: step}
         if step % args.save_pred_every == 0:
-            loss_value, loss1, loss2, loss3, _ = sess.run([reduced_loss, loss_sub4, loss_sub24, loss_sub124, train_op], feed_dict=feed_dict)
+            summ_op = tf.summary.merge(total_summary)
+            loss_value, loss1, loss2, loss3, _, summary = sess.run([reduced_loss, loss_sub4, loss_sub24, loss_sub124, train_op, summ_op], feed_dict = feed_dict)
             save(saver, sess, args.snapshot_dir, step)
+            summary_writer.add_summary(summary, step)
+
         else:
             loss_value, loss1, loss2, loss3, _ = sess.run([reduced_loss, loss_sub4, loss_sub24, loss_sub124, train_op], feed_dict=feed_dict)
+            
         duration = time.time() - start_time
         print('step {:d} \t total loss = {:.3f}, sub4 = {:.3f}, sub24 = {:.3f}, sub124 = {:.3f} ({:.3f} sec/step)'.format(step, loss_value, loss1, loss2, loss3, duration))
         

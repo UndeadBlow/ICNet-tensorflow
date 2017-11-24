@@ -1,25 +1,30 @@
 from __future__ import print_function
 
+import sys
+from pathlib import Path
+sys.path.append('../')
+sys.path.append('./')
+
 import argparse
 import os
-import sys
+
 import time
 from PIL import Image
 import tensorflow as tf
 import numpy as np
 from scipy import misc
 
-from model import ICNet, ICNet_BN
+from model import ICNet_BN
 from tools import decode_labels
 
-IMG_MEAN = np.array((103.939, 116.779, 123.68), dtype=np.float32)
-num_classes = 19
+import train
+from train import INPUT_SIZE, IMG_MEAN, NUM_CLASSES
 
-model_train30k = './model/icnet_cityscapes_train_30k.npy'
-model_trainval90k = './model/icnet_cityscapes_trainval_90k.npy'
-model_train30k_bn = './model/icnet_cityscapes_train_30k_bnnomerge.npy'
-model_trainval90k_bn = './model/icnet_cityscapes_trainval_90k_bnnomerge.npy'
-snapshot_dir = './snapshots'
+import cv2
+
+num_classes = NUM_CLASSES
+
+snapshot_dir = './snapshots/'
 
 SAVE_DIR = './output/'
 
@@ -28,14 +33,10 @@ def get_arguments():
     parser.add_argument("--img-path", type=str, default='',
                         help="Path to the RGB image file.",
                         required=True)
-    parser.add_argument("--model", type=str, default='',
-                        help="Model to use.",
-                        choices=['train', 'trainval', 'train_bn', 'trainval_bn', 'others'],
-                        required=True)
     parser.add_argument("--save-dir", type=str, default=SAVE_DIR,
                         help="Path to save output.")
-    parser.add_argument("--flipped-eval", action="store_true",
-                        help="whether to evaluate with flipped img.")
+    parser.add_argument("--snapshots-dir", type=str, default=snapshot_dir,
+                        help="Path to checkpoints.")
 
 
     return parser.parse_args()
@@ -61,15 +62,19 @@ def load_img(img_path):
         sys.exit(0)
 
     filename = img_path.split('/')[-1]
-    img = misc.imread(img_path, mode='RGB')
+    img = cv2.imread(img_path)
+    
+    shape = INPUT_SIZE.split(',')
+    img = cv2.resize(img, (int(shape[0]), int(shape[1])))
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     print('input image shape: ', img.shape)
 
     return img, filename
 
 def preprocess(img):
     # Convert RGB to BGR
-    img_r, img_g, img_b = tf.split(axis=2, num_or_size_splits=3, value=img)
-    img = tf.cast(tf.concat(axis=2, values=[img_b, img_g, img_r]), dtype=tf.float32)
+    # img_r, img_g, img_b = tf.split(axis=2, num_or_size_splits=3, value=img)
+    img = tf.cast(img, dtype=tf.float32)
     # Extract mean.
     img -= IMG_MEAN
     
@@ -99,60 +104,49 @@ def main():
     img, filename = load_img(args.img_path)
     shape = img.shape[0:2]
 
-    x = tf.placeholder(dtype=tf.float32, shape=img.shape)
+    x = tf.placeholder(dtype = tf.float32, shape = img.shape)
     img_tf = preprocess(x)
     img_tf, n_shape = check_input(img_tf)
 
     # Create network.
-    if args.model[-2:] == 'bn':
-        net = ICNet_BN({'data': img_tf}, num_classes=num_classes)
-    elif args.model == 'others':
-        net = ICNet_BN({'data': img_tf}, num_classes=num_classes)
-    else:
-        net = ICNet({'data': img_tf}, num_classes=num_classes)
-    
-    raw_output = net.layers['conv6_cls']
+    net = ICNet_BN({'data': img_tf}, num_classes = num_classes)
     
     # Predictions.
-    raw_output_up = tf.image.resize_bilinear(raw_output, size=n_shape, align_corners=True)
-    raw_output_up = tf.image.crop_to_bounding_box(raw_output_up, 0, 0, shape[0], shape[1])
-    raw_output_up = tf.argmax(raw_output_up, dimension=3)
-    pred = decode_labels(raw_output_up, shape, num_classes)
+    raw_output = net.layers['conv6_cls']
+    output = tf.image.resize_bilinear(raw_output, tf.shape(img_tf)[1:3,])
+    output = tf.argmax(output, dimension = 3)
+    pred = tf.expand_dims(output, dim = 3)
 
     # Init tf Session
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
-    sess = tf.Session(config=config)
+    sess = tf.Session(config = config)
     init = tf.global_variables_initializer()
 
     sess.run(init)
 
     restore_var = tf.global_variables()
-    
-    if args.model == 'train':
-        print('Restore from train30k model...')
-        net.load(model_train30k, sess)
-    elif args.model == 'trainval':
-        print('Restore from trainval90k model...')
-        net.load(model_trainval90k, sess)
-    elif args.model == 'train_bn':
-        print('Restore from train30k bnnomerge model...')
-        net.load(model_train30k_bn, sess)
-    elif args.model == 'trainval_bn':
-        print('Restore from trainval90k bnnomerge model...')
-        net.load(model_trainval90k_bn, sess)
-    else:
-        ckpt = tf.train.get_checkpoint_state(snapshot_dir)
-        if ckpt and ckpt.model_checkpoint_path:
-            loader = tf.train.Saver(var_list=restore_var)
-            load_step = int(os.path.basename(ckpt.model_checkpoint_path).split('-')[1])
-            load(loader, sess, ckpt.model_checkpoint_path)
+
+    ckpt = tf.train.get_checkpoint_state(args.snapshots_dir)
+    if ckpt and ckpt.model_checkpoint_path:
+        loader = tf.train.Saver(var_list=restore_var)
+        load_step = int(os.path.basename(ckpt.model_checkpoint_path).split('-')[1])
+        load(loader, sess, ckpt.model_checkpoint_path)
 
     preds = sess.run(pred, feed_dict={x: img})
 
+    # print(preds.shape)
+    # s = preds.flatten()
+    # print(set(s))
+    # print((s == 0).sum())
+    # print((s == 1).sum())
+    # print((s == 2).sum())
+
+    msk = decode_labels(preds, num_classes=num_classes)
+    im = Image.fromarray(msk[0])
     if not os.path.exists(args.save_dir):
         os.makedirs(args.save_dir)
-    misc.imsave(args.save_dir + filename, preds[0])
+    im.save(args.save_dir + filename.replace('.jpg', '.png'))
 
 if __name__ == '__main__':
     main()
