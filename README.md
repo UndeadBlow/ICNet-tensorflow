@@ -117,7 +117,7 @@ If you want to use classes weights, you need to pass argument --use-class-weight
 CLASS_WEIGHTS = [1.0, 1.0, 2.0]
 ```
 
-**3.** Run following command and **decide whether to update mean/var or train beta/gamma variable**. Remember to choose `--model=others`.
+**3.** Run following command and **decide whether to update mean/var or train beta/gamma variable**.
 ```
 python train.py --update-mean-var --train-beta-gamma --not-restore-last
 ```
