@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 sys.path.append('../')
 sys.path.append('./')
+sys.path.append('./datasets')
 
 import argparse
 import os
@@ -22,6 +23,14 @@ from train import INPUT_SIZE, IMG_MEAN, NUM_CLASSES
 
 import cv2
 
+def GetAllFilesListRecusive(path, extensions):
+    files_all = []
+    for root, subFolders, files in os.walk(path):
+        for name in files:
+             # linux tricks with .directory that still is file
+            if not 'directory' in name and sum([ext in name for ext in extensions]) > 0:
+                files_all.append(os.path.join(root, name))
+    return files_all
 num_classes = NUM_CLASSES
 
 snapshot_dir = './snapshots/'
@@ -37,6 +46,8 @@ def get_arguments():
                         help="Path to save output.")
     parser.add_argument("--snapshots-dir", type=str, default=snapshot_dir,
                         help="Path to checkpoints.")
+    parser.add_argument("--weighted", action="store_true", default=False,
+                        help="If true, will output weighted images")
 
 
     return parser.parse_args()
@@ -101,15 +112,21 @@ def check_input(img):
 def main():
     args = get_arguments()
     
-    img, filename = load_img(args.img_path)
-    shape = img.shape[0:2]
+    if args.img_path[-4] != '.':
+        files = GetAllFilesListRecusive(args.img_path, ['.jpg', '.jpeg', '.png'])
+    else:
+        files = [args.img_path]
 
-    x = tf.placeholder(dtype = tf.float32, shape = img.shape)
+
+    shape = INPUT_SIZE.split(',')
+    shape = (int(shape[0]), int(shape[1]), 3)
+
+    x = tf.placeholder(dtype = tf.float32, shape = shape)
     img_tf = preprocess(x)
     img_tf, n_shape = check_input(img_tf)
 
     # Create network.
-    net = ICNet_BN({'data': img_tf}, num_classes = num_classes)
+    net = ICNet_BN({'data': img_tf}, is_training = False, num_classes = num_classes)
     
     # Predictions.
     raw_output = net.layers['conv6_cls']
@@ -133,20 +150,27 @@ def main():
         load_step = int(os.path.basename(ckpt.model_checkpoint_path).split('-')[1])
         load(loader, sess, ckpt.model_checkpoint_path)
 
-    preds = sess.run(pred, feed_dict={x: img})
+    for path in files:
 
-    # print(preds.shape)
-    # s = preds.flatten()
-    # print(set(s))
-    # print((s == 0).sum())
-    # print((s == 1).sum())
-    # print((s == 2).sum())
+        img, filename = load_img(path)
 
-    msk = decode_labels(preds, num_classes=num_classes)
-    im = Image.fromarray(msk[0])
-    if not os.path.exists(args.save_dir):
-        os.makedirs(args.save_dir)
-    im.save(args.save_dir + filename.replace('.jpg', '.png'))
+        preds = sess.run(pred, feed_dict={x: img})
+
+        msk = decode_labels(preds, num_classes=num_classes)
+        im = msk[0]
+
+        if not os.path.exists(args.save_dir):
+            os.makedirs(args.save_dir)
+
+        im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+        if args.weighted:
+            indx = (im == [0, 0, 0])
+            im = cv2.addWeighted(im, 0.7, img, 0.7, -15)
+            im[indx] = img[indx]
+
+        cv2.imwrite(args.save_dir + filename.replace('.jpg', '.png'), im)
 
 if __name__ == '__main__':
     main()

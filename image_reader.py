@@ -3,6 +3,8 @@ import os
 import numpy as np
 import tensorflow as tf
 
+from hyperparams import *
+
 def image_scaling(img, label):
     """
     Randomly scales the images between 0.5 to 1.5 times the original size.
@@ -12,7 +14,7 @@ def image_scaling(img, label):
       label: Segmentation mask to scale.
     """
     
-    scale = tf.random_uniform([1], minval = 0.8, maxval = 1.2, dtype=tf.float32, seed=None)
+    scale = tf.random_uniform([1], minval = 0.5, maxval = 1.5, dtype=tf.float32, seed=None)
     h_new = tf.to_int32(tf.multiply(tf.to_float(tf.shape(img)[0]), scale))
     w_new = tf.to_int32(tf.multiply(tf.to_float(tf.shape(img)[1]), scale))
     new_shape = tf.squeeze(tf.stack([h_new, w_new]), squeeze_dims=[1])
@@ -54,19 +56,20 @@ def random_crop_and_pad_image_and_labels(image, label, crop_h, crop_w, ignore_la
     label = label - ignore_label # Needs to be subtracted and later added due to 0 padding.
     combined = tf.concat(axis=2, values=[image, label]) 
     image_shape = tf.shape(image)
-    combined_pad = tf.image.pad_to_bounding_box(combined, 0, 0, tf.maximum(crop_h, image_shape[0]), tf.maximum(crop_w, image_shape[1]))
+    #combined_pad = tf.image.pad_to_bounding_box(combined, 0, 0, tf.maximum(crop_h, image_shape[0]), tf.maximum(crop_w, image_shape[1]))
     
     last_image_dim = tf.shape(image)[-1]
     last_label_dim = tf.shape(label)[-1]
-    combined_crop = tf.random_crop(combined_pad, [crop_h,crop_w,4])
+
+    size = tf.stack([crop_h, crop_w, tf.constant([4])], axis=0)
+    size = tf.squeeze(size)
+
+    combined_crop = tf.random_crop(combined, size)
     img_crop = combined_crop[:, :, :last_image_dim]
     label_crop = combined_crop[:, :, last_image_dim:]
     label_crop = label_crop + ignore_label
     label_crop = tf.cast(label_crop, dtype=tf.uint8)
-    
-    # Set static shape so that tensorflow knows shape at compile time. 
-    img_crop.set_shape((crop_h, crop_w, 3))
-    label_crop.set_shape((crop_h,crop_w, 1))
+
     return img_crop, label_crop  
 
 def read_labeled_image_list(data_list):
@@ -109,40 +112,70 @@ def read_images_from_disk(input_queue, input_size, random_scale, random_mirror, 
       Two tensors: the decoded image and its mask.
     """
 
+
     img_contents = tf.read_file(input_queue[0])
     label_contents = tf.read_file(input_queue[1])
     
     img = tf.image.decode_jpeg(img_contents, channels=3)
     img_r, img_g, img_b = tf.split(axis=2, num_or_size_splits=3, value=img)
     img = tf.cast(tf.concat(axis=2, values=[img_b, img_g, img_r]), dtype=tf.float32)
+    
     # Extract mean.
-    img -= img_mean
+    image = img - img_mean
 
-    label = tf.image.decode_png(label_contents, channels=1)
+    answer = tf.image.decode_png(label_contents, channels=1)
+    
+    if input_size is None:
+        print('WTF?!?!')
+        quit()
 
-    if input_size is not None:
-        h, w = input_size
+    h, w = input_size
 
-        # Randomly scale the images and labels.
-        if random_scale:
-            img, label = image_scaling(img, label)
+    # Randomly scale the images and labels.
+    # if random_scale:
+    #     img, label = image_scaling(img, label)
 
-        # Randomly mirror the images and labels.
-        if random_mirror:
-            img, label = image_mirroring(img, label)
+    # Randomly mirror the images and labels.
+    if random_mirror:
+        image, answer = image_mirroring(image, answer)
 
-        if train:
+    if train:
+        
+        def crop_img(a, b, img = image, label = answer):
             # Randomly crops the images and labels.
-            img, label = random_crop_and_pad_image_and_labels(img, label, h, w, ignore_label)
-        else:
-            img = tf.image.resize_images(img, input_size)
-            img = tf.squeeze(img)
+            h_rate = tf.random_uniform(shape = [1], minval = 0.5, maxval = 1.0, dtype = tf.float32)
+            w_rate = tf.random_uniform(shape = [1], minval = 0.5, maxval = 1.0, dtype = tf.float32)
+            random_h = tf.cast(tf.cast(h, tf.float32) * h_rate, tf.int32)
+            random_w = tf.cast(tf.cast(w, tf.float32) * w_rate, tf.int32)
 
-            label = tf.image.resize_nearest_neighbor(tf.expand_dims(label, 0), input_size)
-            label = tf.squeeze(label)
+            img, label = random_crop_and_pad_image_and_labels(img, label, random_h, random_w, ignore_label)
 
-            img.set_shape([h, w, 3])
-            label.set_shape([h, w])
+            return img, label
+
+        
+        img, label = crop_img(0, 0)
+
+        if CROP_MUSTHAVE_CLASS_INDEX != -1:
+
+            def is_img_not_ok(img = img, label = label): 
+                mask = tf.equal(label, CROP_MUSTHAVE_CLASS_INDEX)
+                any = tf.reduce_any(mask)
+                return tf.logical_not(any)
+            
+            img, label = tf.while_loop(is_img_not_ok, crop_img, loop_vars=[img, label]) 
+
+    else:
+        img = image
+        label = answer
+
+            
+
+    img = tf.image.resize_images(img, input_size)
+    label = tf.image.resize_nearest_neighbor(tf.expand_dims(label, 0), input_size)
+    label = tf.squeeze(label, squeeze_dims=[0])
+
+    img.set_shape([h, w, 3])
+    label.set_shape([h, w, 1])
 
     return img, label
 

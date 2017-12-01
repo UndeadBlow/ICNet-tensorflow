@@ -19,7 +19,7 @@ import copy
 import os 
 import cv2
 import json
-
+import zipfile
 import argparse
 import os
 import time
@@ -30,25 +30,17 @@ from scipy import misc
 from model import ICNet, ICNet_BN
 from tools import decode_labels
 
-from inference import load, load_img, preprocess, check_input
+from inference import load, load_img, preprocess, check_input, GetAllFilesListRecusive
 from train import INPUT_SIZE, IMG_MEAN
 
-def GetAllFilesListRecusive(path, extensions):
-    files_all = []
-    for root, subFolders, files in os.walk(path):
-        for name in files:
-             # linux tricks with .directory that still is file
-            if not 'directory' in name and sum([ext in name for ext in extensions]) > 0:
-                files_all.append(os.path.join(root, name))
-    return files_all
-
+import matplotlib.pyplot as plt
 
 def pure_name(name):
     name = name[name.rfind('/') + 1 : name.rfind('.')]
     name = name.replace('_L', '')
     return name
 
-def run_on_video(video_filename, out_filename, model_path, num_classes, save_to = 'simple', canvas_size = (1600, 800), alpha = 0.8, beta = 0.2, output_size = (1280, 720)):
+def run_on_video(video_filename, out_filename, model_path, num_classes, save_to = 'simple', canvas_size = (1600, 800), alpha = 0.8, beta = 0.2, output_size = (1280, 720), step = 1):
     '''
     save_to: simple, double_screen or weighted
     '''
@@ -103,17 +95,25 @@ def run_on_video(video_filename, out_filename, model_path, num_classes, save_to 
 
 
     frame_num = 0
+    zf = None
     while(cap.isOpened()):
-        frame_num = frame_num + 1
-        print('Processing frame', frame_num)
-        
+
         # Capture frame-by-frame
         ret, image = cap.read()
 
-        if out_cap == None:
-            out_cap = cv2.VideoWriter(out_filename.replace('.mp4', '.avi'), 
-                cv2.VideoWriter_fourcc(*"MJPG"), 20, (image.shape[0], image.shape[1]))
 
+        frame_num = frame_num + 1
+        if frame_num % step != 0:
+            continue
+        print('Processing frame', frame_num)
+        
+        if out_cap == None and save_to != 'images':
+            out_cap = cv2.VideoWriter(out_filename.replace('.mp4', '.avi'), 
+                cv2.VideoWriter_fourcc(*'MJPG'), 20, (image.shape[1], image.shape[0]))
+        elif save_to == 'images' and zf == None:
+            zipfile_name = out_filename.replace('.mp4', '.zip')
+
+        original_shape = image.shape
         if image.shape[2] == 1:
             image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
             
@@ -155,11 +155,22 @@ def run_on_video(video_filename, out_filename, model_path, num_classes, save_to 
 
         elif save_to == 'simple':
 
-            frame = cv2.resize(frame, (image.shape[0], image.shape[1]))
+            frame = cv2.resize(frame, (original_shape[1], original_shape[0]), interpolation = cv2.INTER_NEAREST)
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            #cv2.imshow('1', frame)
+            #cv2.waitKey(0)
             out_cap.write(frame)
 
+        
+        elif save_to == 'images':
 
+            frame = cv2.resize(frame, (original_shape[1], original_shape[0]), interpolation = cv2.INTER_NEAREST)
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            cv2.imwrite('/tmp/1.png', frame)
+            zf = zipfile.ZipFile(zipfile_name, "a", zipfile.ZIP_DEFLATED)
+            name = 'frame_' + '%08d' % frame_num + '.png'
+            zf.write('/tmp/1.png', name)
+            zf.close()
 
         elif save_to == 'weighted':
 
@@ -171,17 +182,82 @@ def run_on_video(video_filename, out_filename, model_path, num_classes, save_to 
 
             frame = cv2.addWeighted(image, alpha, frame, beta, 0)
             
-            #cv2.imshow('1', frame)
-            #cv2.waitKey(0)
 
             out_cap.write(frame)
 
+        elif save_to == 'perspective':
+
+            preds = preds.squeeze()
+
+            img, mask = getCutedRoad(image, preds)
+
+            mask = np.expand_dims(mask, axis = 0)
+            mask = np.expand_dims(mask, axis = 3)
+
+            msk = decode_labels(mask, num_classes=num_classes)
+            f = msk[0]
+
+            # h, w = frame.shape[:2]
+
+
+            # src = np.float32([[x1, y1],    # br
+            #           [x0, y1],    # bl
+            #           [x0, y0],   # tl
+            #           [x1, y0]])  # tr
+
+            # dst = np.float32([[w, h],       # br
+            #                 [0, h],       # bl
+            #                 [0, 0],       # tl
+            #                 [w, 0]])      # tr
+
+
+            # M = cv2.getPerspectiveTransform(src, dst)
+            # Minv = cv2.getPerspectiveTransform(dst, src)
+
+            # warped = cv2.warpPerspective(image, M, (w, h), flags=cv2.INTER_LINEAR)
+
+            # cv2.imshow('1', warped)
+
+            #resized = cv2.resize(img[y0 : y1, x0 : x1], input_size, interpolation = cv2.INTER_NEAREST)
+
+            print((preds == 2).sum() / (preds.shape[0] * preds.shape[1]))
+            mask = np.array(mask)
+            mask = mask.squeeze()
+            print((mask == 2).sum() / (mask.shape[0] * mask.shape[1]))
+
+            cv2.imshow('2', cv2.resize(img, input_size, interpolation = cv2.INTER_NEAREST))
+            cv2.imshow('3', cv2.resize(f, input_size, interpolation = cv2.INTER_NEAREST))
+            cv2.imshow('4', image)
+            cv2.waitKey(0)
+            #quit()
 
 
     cap.release()
     out_cap.release()
+    zf.close()
+
+def getCutedRoad(img, mask):
+
+    x1, y1, x0, y0 = getRoadCoords(mask)
+    return img[y0 : y1, x0 : x1], mask[y0 : y1, x0 : x1]
+
+def getRoadCoords(mask, road_index = 1):
+    indx = np.argwhere(mask == road_index)
+
+    # sort by smallest x
+    indx = sorted(indx, key=lambda x: x[0], reverse=False)
+
+    y0, y1 = indx[0][0], indx[-1][0]
+
+    indx = sorted(indx, key=lambda x: x[1], reverse=False)
+
+    x0, x1 = indx[0][1], indx[-1][1]
+
+    return x1, y1, x0, y0
 
 
 if __name__ == '__main__':
-    run_on_video('/home/undead/Downloads/lanes/lanes3.mp4', '/home/undead/Downloads/lanes/lanes3_out_w_2.mp4',
-                 '/home/undead/reps/ICNetUB/best_models/miou_0.4328', num_classes = 3, save_to = 'weighted', alpha = 0.5, beta = 0.5)
+    #run_on_video('/home/undead/Downloads/lanes/nick.avi', '/home/undead/Downloads/lanes/nick_out_800.mp4',
+    #             '/home/undead/reps/ICNetUB/best_models/miou_0.4607', num_classes = 3, save_to = 'images', alpha = 0.5, beta = 0.5, step = 1)
+    run_on_video('/home/undead/Downloads/lanes/nick.avi', '/home/undead/Downloads/lanes/nick_out_800.mp4',
+                 '/home/undead/reps/ICNetUB/snapshots', num_classes = 3, save_to = 'weighted', alpha = 0.5, beta = 0.5, step = 1)

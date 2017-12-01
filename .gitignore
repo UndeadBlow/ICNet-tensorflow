@@ -6,4 +6,8 @@ test/
 *.zip
 output/
 0.7656/
+*event*
+miou*/*
+PSPNetcheckpoint/*
+*.pyc
 __pycache__

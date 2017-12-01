@@ -27,7 +27,7 @@ def calc_size(filename):
 
 SAVE_DIR = './output/'
 
-DATA_LIST_PATH = '/mnt/Data/Datasets/Segmentation/mapillary_vistas_3_class/merged_valid_list.txt'
+DATA_LIST_PATH = '/mnt/Data/Datasets/Segmentation/vistas_no_pp/valid_list.txt'
 
 snapshot_dir = './snapshots'
 best_models_dir = './best_models'
@@ -46,17 +46,11 @@ batch_size = 1
 def get_arguments():
     parser = argparse.ArgumentParser(description="Reproduced PSPNet")
 
-    parser.add_argument("--measure-time", action="store_true",
-                        help="whether to measure inference time")
-    parser.add_argument("--model", type=str, default='',
-                        help="Model to use.",
-                        choices=['train', 'trainval', 'train_bn', 'trainval_bn', 'other'],
-                        required=True)
     parser.add_argument("--data-list", type=str, default=DATA_LIST_PATH,
                         help="Text file with pairs image-answer")
     parser.add_argument("--save-dir", type=str, default=SAVE_DIR,
                         help="Path to save output.")
-    parser.add_argument("--snapshot-dir", type=str, default=SAVE_DIR,
+    parser.add_argument("--snapshot-dir", type=str, default=snapshot_dir,
                         help="Path to load")
     parser.add_argument("--flipped-eval", action="store_true",
                         help="whether to evaluate with flipped img.")
@@ -68,6 +62,13 @@ def get_arguments():
                         help="If set, best mIOU checkpoint will be saved in that dir in .zip format")
     parser.add_argument("--eval-interval", type=int, default=INTERVAL,
                         help="How often to evaluate model, seconds")
+    parser.add_argument("--batch-size", type=int, default=batch_size,
+                        help="Size of batch")
+    parser.add_argument("--measure-time", action="store_true", default=False,
+                        help="Evaluate only model inference time")
+    parser.add_argument("--runs", type=int, default=100,
+                        help="Repeats for time measure. More runs - longer testing - more precise results")
+
 
 
     return parser.parse_args()
@@ -76,19 +77,28 @@ def load(saver, sess, ckpt_path):
     saver.restore(sess, ckpt_path)
     print("Restored model parameters from {}".format(ckpt_path))
 
-def calculate_time(sess, net):
-    start = time.time()
-    sess.run(net.layers['data'])
-    data_time = time.time() - start
+def calculate_perfomance(sess, image_batch, raw_output, shape, runs = 1000, batch_size = 1):
 
     start = time.time()
-    sess.run(net.layers['conv6_cls'])
-    total_time = time.time() - start
 
-    inference_time = total_time - data_time
+    print('Calculating inference time...\n')
+    # To exclude numpy generating time
+    N = 10
+    for i in range(0, N):
+        img = np.random.random((batch_size, shape[0], shape[1], 3))
+    stop = time.time()
 
-    time_list.append(inference_time)
-    print('average inference time: {}'.format(np.mean(time_list)))
+    time_for_generate = (stop - start) / N
+
+    start = time.time()
+    for i in range(runs):
+        sess.run(raw_output, feed_dict = {image_batch : img})
+
+    stop = time.time()
+
+    inf_time = ((stop - start) / float(runs)) - time_for_generate
+
+    print('Average inference time: {}'.format(inf_time))
 
 
 def save_model(step, iou, checkpint_dir, output_dir):
@@ -132,7 +142,7 @@ def load_last_best_iou(dir):
     
     return best_iou
 
-def evaluate_checkpoint(model_path, args):
+def evaluate_checkpoint(model_path, args, measure_time_only):
     coord = tf.train.Coordinator()
 
     tf.reset_default_graph()
@@ -146,7 +156,7 @@ def evaluate_checkpoint(model_path, args):
             img_mean = IMG_MEAN,
             coord = coord,
             train = False)
-    image_batch, label_batch = reader.dequeue(batch_size)
+    image_batch, label_batch = reader.dequeue(args.batch_size)
 
     # Set up tf session and initialize variables.
     config = tf.ConfigProto()
@@ -157,12 +167,13 @@ def evaluate_checkpoint(model_path, args):
     threads = tf.train.start_queue_runners(coord = coord, sess = sess)
 
     # Create network.
-    net = ICNet_BN({'data': image_batch}, num_classes = num_classes)
+    net = ICNet_BN({'data': image_batch}, is_training = False, num_classes = num_classes)
     # Which variables to load.
     restore_var = tf.global_variables()
 
     # Predictions.
     raw_output = net.layers['conv6_cls']
+
 
     raw_output_up = tf.image.resize_bilinear(raw_output, size = INPUT_SIZE, align_corners = True)
     raw_output_up = tf.argmax(raw_output_up, dimension = 3)
@@ -201,6 +212,11 @@ def evaluate_checkpoint(model_path, args):
 
     saver = tf.train.Saver(var_list = restore_var)
     load(saver, sess, model_path)
+
+
+    if measure_time_only:
+        calculate_perfomance(sess, image_batch, raw_output, INPUT_SIZE, args.runs, args.batch_size)
+        return None, None
     
 
     for step in range(num_steps):
@@ -224,7 +240,12 @@ def evaluate_checkpoint(model_path, args):
 def main():
     args = get_arguments()
 
-    if args.repeated_eval:
+    if args.measure_time:
+        model_path = tf.train.latest_checkpoint(args.snapshot_dir)
+        global_step = int(os.path.basename(model_path).split('-')[1])
+        evaluate_checkpoint(model_path, args, measure_time_only = True)
+
+    elif args.repeated_eval:
 
         last_evaluated_model_path = None
 
@@ -244,10 +265,14 @@ def main():
                 global_step = int(os.path.basename(model_path).split('-')[1])
                 last_evaluated_model_path = model_path
                 number_of_evaluations = 0
-                
-                summary_writer = tf.summary.FileWriter(args.snapshot_dir)
 
-                summ, iou = evaluate_checkpoint(last_evaluated_model_path, args)
+                eval_path = args.snapshot_dir + '/eval'
+                if not (os.path.exists(eval_path)):
+                    os.mkdir(eval_path)
+                
+                summary_writer = tf.summary.FileWriter(eval_path)
+
+                summ, iou = evaluate_checkpoint(last_evaluated_model_path, args, False)
                 print('Step', global_step, ', mIOU:', iou)
 
                 if iou > best_iou:
@@ -273,7 +298,7 @@ def main():
         
         model_path = tf.train.latest_checkpoint(args.snapshot_dir)
         global_step = int(os.path.basename(model_path).split('-')[1])
-        summ, iou = evaluate_checkpoint(last_evaluated_model_path, args)
+        summ, iou = evaluate_checkpoint(model_path, args)
         print('Step', global_step, ', mIOU:', iou)
 
 

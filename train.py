@@ -10,38 +10,12 @@ import sys
 import time
 
 import tensorflow as tf
-import numpy as np
 
 from model import ICNet_BN
 from tools import decode_labels, prepare_label, inv_preprocess
 from image_reader import ImageReader
 
-# Mean taken from Mapilary Vistas dataset
-IMG_MEAN = np.array((106.33906592, 116.77648721, 119.91756518), dtype = np.float32)
-
-BATCH_SIZE = 8
-DATA_LIST_PATH = '/mnt/Data/Datasets/Segmentation/mapillary_vistas_3_class/list.txt'
-IGNORE_LABEL = 255
-INPUT_SIZE = '800,800'
-LEARNING_RATE = 5e-3
-MOMENTUM = 0.9
-NUM_CLASSES = 3
-NUM_STEPS = 100000
-POWER = 0.96
-RANDOM_SEED = 1234
-WEIGHT_DECAY = 0.0001
-PRETRAINED_MODEL = './model/icnet_cityscapes_trainval_90k_bnnomerge.npy'
-SNAPSHOT_DIR = './snapshots/'
-SAVE_NUM_IMAGES = 8
-SAVE_PRED_EVERY = 150
-
-# Loss Function = LAMBDA1 * sub4_loss + LAMBDA2 * sub24_loss + LAMBDA3 * sub124_loss
-LAMBDA1 = 0.4
-LAMBDA2 = 0.4
-LAMBDA3 = 1.0
-
-USE_CLASS_WEIGHTS = True
-CLASS_WEIGHTS = [1.0, 1.0, 3.0]
+from hyperparams import *
 
 def get_arguments():
     parser = argparse.ArgumentParser(description="ICNet")
@@ -115,6 +89,9 @@ def create_loss(output, label, num_classes, ignore_label, use_w = False):
     gt = tf.cast(tf.gather(label, indices), tf.int32)
     pred = tf.gather(raw_pred, indices)
 
+
+    #with tf.device('/cpu:0'):
+
     loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits = pred, labels = gt)
 
     # Make mistakes for class N more important for network
@@ -122,12 +99,13 @@ def create_loss(output, label, num_classes, ignore_label, use_w = False):
         if len(CLASS_WEIGHTS) != num_classes:
             print('Incorrect class weights, it will be not used')
         else:
-            mask = tf.zeros_like(loss)
 
+            mask = tf.zeros_like(loss)
             for i, w in enumerate(CLASS_WEIGHTS):
-                mask = mask + tf.cast(tf.equal(gt, i), tf.float32) * tf.constant(w)
-            #mask = tf.cast(tf.equal(gt, 2), tf.float32) * tf.constant(2)
-            #loss = loss * tf.add(mask, 1)
+                # mask = mask + tf.cast(tf.equal(gt, i), tf.float32) * tf.constant(w)
+                preds = tf.unstack(pred, axis = -1)[0]
+                mask = mask + tf.cast(tf.logical_or(tf.equal(gt, i), tf.equal(preds, i)), tf.float32) * tf.constant(w)
+
             loss = loss * mask
 
     reduced_loss = tf.reduce_mean(loss)
@@ -180,7 +158,7 @@ def main():
 
 
     ##############################
-    # visualisation and summary
+    # visualization and summary
     ##############################
 
 
@@ -207,7 +185,7 @@ def main():
     preds_summary124 = tf.py_func(decode_labels, [pred124, SAVE_NUM_IMAGES, args.num_classes], tf.uint8)
     
     total_images_summary = tf.summary.image('images', 
-                                     tf.concat(axis=2, values=[images_summary, labels_summary, preds_summary4, preds_summary24, preds_summary124]), 
+                                     tf.concat(axis=2, values=[images_summary, labels_summary, preds_summary124]), 
                                      max_outputs=SAVE_NUM_IMAGES) # Concatenate row-wise.
 
     total_summary = [total_images_summary]
@@ -222,9 +200,13 @@ def main():
     ##############################
 
     # Using Poly learning rate policy 
-    base_lr = tf.constant(args.learning_rate)
-    step_ph = tf.placeholder(dtype=tf.float32, shape=())
-    learning_rate = tf.scalar_mul(base_lr, tf.pow((1 - step_ph / args.num_steps), args.power))
+    if LR_SHEDULE == {}:
+        base_lr = tf.constant(args.learning_rate)
+        step_ph = tf.placeholder(dtype=tf.float32, shape=())
+        learning_rate = tf.scalar_mul(base_lr, tf.pow((1 - step_ph / args.num_steps), args.power))
+    else:
+        step_ph = tf.placeholder(dtype=tf.float32, shape=())
+        learning_rate = tf.Variable(LR_SHEDULE.popitem()[1], tf.float32)
 
     lr_summary = tf.summary.scalar('Learning_rate', learning_rate)
     total_summary.append(lr_summary)
@@ -262,15 +244,22 @@ def main():
 
     # Start queue threads.
     threads = tf.train.start_queue_runners(coord=coord, sess=sess)
-
+    summ_op = tf.summary.merge(total_summary)
+    
     # Iterate over training steps.
     for step in range(args.num_steps):
         start_time = time.time()
         
+        if LR_SHEDULE != {}:
+            if step == LR_SHEDULE.keys()[0]:
+                tf.assign(learning_rate, LR_SHEDULE.popitem()[0])
+
         feed_dict = {step_ph: step}
         if step % args.save_pred_every == 0:
-            summ_op = tf.summary.merge(total_summary)
-            loss_value, loss1, loss2, loss3, _, summary = sess.run([reduced_loss, loss_sub4, loss_sub24, loss_sub124, train_op, summ_op], feed_dict = feed_dict)
+            
+            loss_value, loss1, loss2, loss3, _, summary =\
+                sess.run([reduced_loss, loss_sub4, loss_sub24, loss_sub124, train_op, summ_op], feed_dict = feed_dict)
+
             save(saver, sess, args.snapshot_dir, step)
             summary_writer.add_summary(summary, step)
 
@@ -278,6 +267,8 @@ def main():
             loss_value, loss1, loss2, loss3, _ = sess.run([reduced_loss, loss_sub4, loss_sub24, loss_sub124, train_op], feed_dict=feed_dict)
             
         duration = time.time() - start_time
+        #print('shape', sess.run(tf.shape(sub124_out)))
+        #quit()
         print('step {:d} \t total loss = {:.3f}, sub4 = {:.3f}, sub24 = {:.3f}, sub124 = {:.3f} ({:.3f} sec/step)'.format(step, loss_value, loss1, loss2, loss3, duration))
         
     coord.request_stop()

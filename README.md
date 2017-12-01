@@ -18,13 +18,37 @@ Here is only list of changes. How to use them see below or in code directly.
 - [x] You can use now "--best-models-dir". If it set, best model will be zipped on each iteration and saved to that path.
 - [x] Added option "--ignore-zero" in evaluation. With that option results of zero class will be ignored for mIOU. It is very usefull in tasks where most place on image is taken with zero class.
 - [x] Some minor changes and improvements. For example, size of validation set is calculating automatically from size of list.txt. It's not good to set it by hand every time.
-- [ ] "--measure-time" not working for now. I plan to improve that procedure, in original code it was not fully correct.
+- [x] "--measure-time" for evaluation works fine now and measures quite objective.
 - [ ] Some features was removed, for example you can't use evaluate.py with .npy models now. I don't think it's good to use two different formats. You can only load from .npy for training and use after that only .tf format of checkpoints.
+
+** Please, note that for now that repo is quite imperfect, because was created for one specific task. But mostly I mean interface and I tried to adapt it for common segmentation tasks with any number of classes. Main problem now is that a half of parameters are set in hyperparams.py, while the rest you must set by command line arguments. So for now, please, prefer to use hyperparams.py for changing hyperparameters, especially input size. 
+
+Also try to check Update section to be sure you know last changes**
 
 ## Introduction
   This is an implementation of ICNet in TensorFlow for semantic segmentation on my own data, so don't forget to change labels and number of classes. We first convert weight from [Original Code](https://github.com/hszhao/ICNet) by using [caffe-tensorflow](https://github.com/ethereon/caffe-tensorflow) framework.
   
 ## Update
+
+#### 2017/12/01
+
+1. Added --measure-time for evaluation. Pass it to evaluation to get time measures instead of validation.
+2. Fixed classes weights, now that feature must works much better.
+3. Moved all hyperparams to one place: hyperparams.py. Control them now from this file.
+4. Added PSPNet model, you can use train_psp.py to train it. Not all fatures works for that model.
+5. Added --weighted for inference, with that option output will be a combination of input and output, very very illustrative.
+6. Now inference will work on directory (will inference all images in dir) if you will pass path to directory in --img-path argument.
+7. Random crop was fully rewritten. Random pad and random scale now not working (coming soon), but crop works correctly now. In original it worked only with random scale (incorrectly) and always was with padding. You can control crop rate with minval and maxval in image_reader.py:
+```
+h_rate = tf.random_uniform(shape = [1], minval = 0.5, maxval = 1.0, dtype = tf.float32)
+w_rate = tf.random_uniform(shape = [1], minval = 0.5, maxval = 1.0, dtype = tf.float32)
+```
+8. Added CROP_MUSTHAVE_CLASS_INDEX in hyperparams. If it is -1 nothing will change. But if you will set it to some class index, crop operation will return only crops where that class presented (at least one pixel, but usually that's enough. In future I will implement also parameter to control pixel part of needed class).
+9. Removed excess image summaries (only original + network output now, no branches output) for now. Will thinks about it more in future.
+10. Added --evaluate-once to evaluation.
+11. Fixed summaries writing, it was incorrect before.
+
+![TB](https://github.com/UndeadBlow/ICNet_tensorflow/blob/master/tensorboard.png)
 
 #### 2017/11/23:
 1. Forked by me. Initial changes was done (described above in differences section). Models now stored in repository.
@@ -88,7 +112,7 @@ BATCH_SIZE = 8
 DATA_LIST_PATH = '/mnt/Data/Datasets/Segmentation/mapillary_vistas_3_class/list.txt'
 IGNORE_LABEL = 255
 INPUT_SIZE = '800,800'
-LEARNING_RATE = 1e-2
+LEARNING_RATE = 1e-3
 MOMENTUM = 0.9
 NUM_CLASSES = 3
 NUM_STEPS = 100000
@@ -119,11 +143,16 @@ CLASS_WEIGHTS = [1.0, 1.0, 2.0]
 
 **3.** Run following command and **decide whether to update mean/var or train beta/gamma variable**.
 ```
-python train.py --update-mean-var --train-beta-gamma --not-restore-last
+python train.py --update-mean-var --train-beta-gamma --random-mirror --use-class-weights --not-restore-last
 ```
 After training the dataset, you can run following command to get the result:  
 ```
 python inference.py --img-path=YOUR_OWN_IMAGE
+```
+
+Example of validation run:
+```
+python evaluate.py --snapshot-dir=snapshots --repeated-eval --best-models-dir ./best_models --eval-interval 120 --ignore-zero
 ```
 
 Also you can run model on video with utils.py script in dataset directory, but it is a little hardcoded for myself, so success is on your own.
