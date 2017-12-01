@@ -42,12 +42,10 @@ Also try to check Update section to be sure you know last changes**
 h_rate = tf.random_uniform(shape = [1], minval = 0.5, maxval = 1.0, dtype = tf.float32)
 w_rate = tf.random_uniform(shape = [1], minval = 0.5, maxval = 1.0, dtype = tf.float32)
 ```
-8. Added CROP_MUSTHAVE_CLASS_INDEX in hyperparams. If it is -1 nothing will change. But if you will set it to some class index, crop operation will return only crops where that class presented (at least one pixel, but usually that's enough. In future I will implement also parameter to control pixel part of needed class).
+8. Added CROP_MUSTHAVE_CLASS_INDEX in hyperparams. If it is -1 nothing will change. But if you will set it to some class index, crop operation will return only crops where that class is presented (at least one pixel, but usually that's enough. In future I will implement also parameter to control pixels part of needed class).
 9. Removed excess image summaries (only original + network output now, no branches output) for now. Will thinks about it more in future.
 10. Added --evaluate-once to evaluation.
 11. Fixed summaries writing, it was incorrect before.
-
-![TB](https://raw.githubusercontent.com/UndeadBlow/ICNet-tensorflow/master/tensorboard.png)
 
 #### 2017/11/23:
 1. Forked by me. Initial changes was done (described above in differences section). Models now stored in repository.
@@ -153,6 +151,9 @@ Example of validation run:
 ```
 python evaluate.py --snapshot-dir=snapshots --repeated-eval --best-models-dir ./best_models --eval-interval 120 --ignore-zero
 ```
+Example of training process in Tensorboard summaries:
+![TB](https://raw.githubusercontent.com/UndeadBlow/ICNet-tensorflow/master/tensorboard.png)
+
 
 Also you can run model on video with utils.py script in dataset directory, but it is a little hardcoded for myself, so success is on your own.
 
