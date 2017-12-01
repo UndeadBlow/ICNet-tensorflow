@@ -62,8 +62,7 @@ w_rate = tf.random_uniform(shape = [1], minval = 0.5, maxval = 1.0, dtype = tf.f
 
 
 ## Install
-Get restore checkpoint from [Google Drive](https://drive.google.com/drive/folders/0B9CKOTmy0DyadTdHejU1Q1lfRkU?usp=sharing
-) and put into `model` directory.
+Get restore checkpoint from [Google Drive](https://drive.google.com/drive/folders/0B9CKOTmy0DyadTdHejU1Q1lfRkU?usp=sharing) and put into `model` directory.
 
 ## Inference
 To get result on your own images, use the following command:
@@ -98,11 +97,13 @@ Input image                |  Output image
 > Note: This implementation is different from the details descibed in ICNet paper, since I did not re-produce model compression part. Instead, we train on the half kernel directly.
 
 ### Step by Step
-**1. Change the `DATA_LIST_PATH`** in line 22, make sure the list contains the absolute path of your data files, in `list.txt`:
+**1. Change the `DATA_LIST_PATH`** train.py, make sure the list contains the absolute path of your data files, in `list.txt`:
 ```
 /ABSOLUTE/PATH/TO/image /ABSOLUTE/PATH/TO/label
 ```
-**2. Set Hyperparameters** `hyperparams.py`
+**2. Set Hyperparameters** 
+
+In `hyperparams.py`:
 ```
 #  Mean taken from Mapilary Vistas dataset
 IMG_MEAN = np.array((106.33906592, 116.77648721, 119.91756518), dtype = np.float32)
