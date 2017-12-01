@@ -21,8 +21,7 @@ Here is only list of changes. How to use them see below or in code directly.
 - [x] "--measure-time" for evaluation works fine now and measures quite objective.
 - [ ] Some features was removed, for example you can't use evaluate.py with .npy models now. I don't think it's good to use two different formats. You can only load from .npy for training and use after that only .tf format of checkpoints.
 
-** Please, note that for now that repo is quite imperfect, because was created for one specific task. But mostly I mean interface and I tried to adapt it for common segmentation tasks with any number of classes. Main problem now is that a half of parameters are set in hyperparams.py, while the rest you must set by command line arguments. So for now, please, prefer to use hyperparams.py for changing hyperparameters, especially input size. 
-
+**Please, note that for now that repo is quite imperfect, because was created for one specific task. But mostly I mean interface and I tried to adapt it for common segmentation tasks with any number of classes. Main problem now is that a half of parameters are set in hyperparams.py, while the rest you must set by command line arguments. So for now, please, prefer to use hyperparams.py for changing hyperparameters, especially input size. 
 Also try to check Update section to be sure you know last changes**
 
 ## Introduction
@@ -48,7 +47,7 @@ w_rate = tf.random_uniform(shape = [1], minval = 0.5, maxval = 1.0, dtype = tf.f
 10. Added --evaluate-once to evaluation.
 11. Fixed summaries writing, it was incorrect before.
 
-![TB](https://github.com/UndeadBlow/ICNet_tensorflow/blob/master/tensorboard.png)
+![TB](https://raw.githubusercontent.com/UndeadBlow/ICNet-tensorflow/master/tensorboard.png)
 
 #### 2017/11/23:
 1. Forked by me. Initial changes was done (described above in differences section). Models now stored in repository.
