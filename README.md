@@ -102,35 +102,28 @@ Input image                |  Output image
 ```
 /ABSOLUTE/PATH/TO/image /ABSOLUTE/PATH/TO/label
 ```
-**2. Set Hyperparameters** (line 21-35) in `train.py`
+**2. Set Hyperparameters** `hyperparams.py`
 ```
+#  Mean taken from Mapilary Vistas dataset
 IMG_MEAN = np.array((106.33906592, 116.77648721, 119.91756518), dtype = np.float32)
+
 BATCH_SIZE = 8
-DATA_LIST_PATH = '/mnt/Data/Datasets/Segmentation/mapillary_vistas_3_class/list.txt'
+DATA_LIST_PATH = '/mnt/Data/Datasets/Segmentation/vistas_no_pp/list.txt'
 IGNORE_LABEL = 255
 INPUT_SIZE = '800,800'
-LEARNING_RATE = 1e-3
-MOMENTUM = 0.9
+LEARNING_RATE = 5e-2
+MOMENTUM = 0.95
 NUM_CLASSES = 3
 NUM_STEPS = 100000
-POWER = 0.96
+POWER = 0.9
 RANDOM_SEED = 1234
-WEIGHT_DECAY = 0.0001
+WEIGHT_DECAY = 0.000001
 PRETRAINED_MODEL = './model/icnet_cityscapes_trainval_90k_bnnomerge.npy'
-SNAPSHOT_DIR = './test/'
+SNAPSHOT_DIR = './snapshots/'
 SAVE_NUM_IMAGES = 8
-SAVE_PRED_EVERY = 150
-```
-Please note, that some of that parameters, like IMG_MEAN, will be used in inference and evaluation procedure.
+SAVE_PRED_EVERY = 200
 
-Also change labels in tools.py with respect to your classes.
-
-Also **set the loss function weight** (line 38-40) descibed in the paper:
-```
-# Loss Function = LAMBDA1 * sub4_loss + LAMBDA2 * sub24_loss + LAMBDA3 * sub124_loss
-LAMBDA1 = 0.4
-LAMBDA2 = 0.4
-LAMBDA3 = 1.0
+USE_CLASS_WEIGHTS = True
 ```
 
 If you want to use classes weights, you need to pass argument --use-class-weights and setup class weights value in train.py:
