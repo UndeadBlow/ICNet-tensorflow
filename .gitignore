@@ -10,4 +10,5 @@ output/
 miou*/*
 PSPNetcheckpoint/*
 *.pyc
+*.pb
 __pycache__

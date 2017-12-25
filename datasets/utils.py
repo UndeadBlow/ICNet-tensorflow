@@ -259,5 +259,5 @@ def getRoadCoords(mask, road_index = 1):
 if __name__ == '__main__':
     #run_on_video('/home/undead/Downloads/lanes/nick.avi', '/home/undead/Downloads/lanes/nick_out_800.mp4',
     #             '/home/undead/reps/ICNetUB/best_models/miou_0.4607', num_classes = 3, save_to = 'images', alpha = 0.5, beta = 0.5, step = 1)
-    run_on_video('/home/undead/Downloads/lanes/nick.avi', '/home/undead/Downloads/lanes/nick_out_800.mp4',
-                 '/home/undead/reps/ICNetUB/snapshots', num_classes = 3, save_to = 'weighted', alpha = 0.5, beta = 0.5, step = 1)
+    run_on_video('/home/undead/Downloads/lanes/minisample2.mp4', '/home/undead/Downloads/lanes/mini_out_w_800.mp4',
+                 '/home/undead/reps/ICNetUB/miou_0.4480/', num_classes = 3, save_to = 'images', alpha = 0.5, beta = 0.5, step = 1)

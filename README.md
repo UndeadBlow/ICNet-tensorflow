@@ -18,7 +18,8 @@ Here is only list of changes. How to use them see below or in code directly.
 - [x] You can use now "--best-models-dir". If it set, best model will be zipped on each iteration and saved to that path.
 - [x] Added option "--ignore-zero" in evaluation. With that option results of zero class will be ignored for mIOU. It is very usefull in tasks where most place on image is taken with zero class.
 - [x] Some minor changes and improvements. For example, size of validation set is calculating automatically from size of list.txt. It's not good to set it by hand every time.
-- [x] "--measure-time" for evaluation works fine now and measures quite objective.
+- [x] "--measure-time" for inference works fine now and measures quite objective.
+- [x] Added scripts for exporting and quantizing graph for production usage. That works also similar to Tensorflow Object Detection API pipeline.
 - [ ] Some features was removed, for example you can't use evaluate.py with .npy models now. I don't think it's good to use two different formats. You can only load from .npy for training and use after that only .tf format of checkpoints.
 
 **Please, note that for now that repo is quite imperfect, because was created for one specific task. But mostly I mean interface and I tried to adapt it for common segmentation tasks with any number of classes. Main problem now is that a half of parameters are set in hyperparams.py, while the rest you must set by command line arguments. So for now, please, prefer to use hyperparams.py for changing hyperparameters, especially input size. 
@@ -27,10 +28,14 @@ Also try to check Update section to be sure you know last changes**
 ## Introduction
   This is an implementation of ICNet in TensorFlow for semantic segmentation on my own data, so don't forget to change labels and number of classes. We first convert weight from [Original Code](https://github.com/hszhao/ICNet) by using [caffe-tensorflow](https://github.com/ethereon/caffe-tensorflow) framework.
   
-## Update
+## Change list
+
+#### 2017/12/10
+1. Moved --measure-time option to inference.py script. More suitable here.
+2. Added export_inference_graph.py that creates frozen model (from checkpoints). Outputs .pb file that can be used for production.
+3. Added example of usage of exporting graph. Check export_model.sh. In that script used all pipeline: first creating frozen graph without weights, then unfrozen with weights and then cleaned and quantized graph, if you wish.
 
 #### 2017/12/01
-
 1. Added --measure-time for evaluation. Pass it to evaluation to get time measures instead of validation.
 2. Fixed classes weights, now that feature must works much better.
 3. Moved all hyperparams to one place: hyperparams.py. Control them now from this file.
@@ -150,6 +155,59 @@ Example of training process in Tensorboard summaries:
 
 
 Also you can run model on video with utils.py script in dataset directory, but it is a little hardcoded for myself, so success is on your own.
+
+## Export model for production
+
+Check file export_model.sh for example of exporting model.
+
+In that .sh file please change all paths and names to yours.
+
+Then run it with bash.
+```
+bash export_model.sh
+```
+
+First script will convert your model to inference graph - without weights. So called unfrozen graph.
+After that it will convert it to frozen graph, with weights.
+
+Example of how to run that model after exporting see in inference.py:
+
+```
+def load_from_pb(shape, path):
+    segment_graph = tf.Graph()
+    with segment_graph.as_default():
+        seg_graph_def = tf.GraphDef()
+        with tf.gfile.GFile(path, 'rb') as fid:
+            serialized_graph = fid.read()
+            seg_graph_def.ParseFromString(serialized_graph)
+            
+            x = tf.placeholder(dtype = tf.float32, shape = shape)
+            img_tf = preprocess(x)
+            img_tf, n_shape = check_input(img_tf)
+            
+            tf.import_graph_def(seg_graph_def, {'input:0': img_tf}, name = '')
+
+            raw_output = segment_graph.get_tensor_by_name('conv6_cls/BiasAdd:0')
+            output = tf.image.resize_bilinear(raw_output, tf.shape(img_tf)[1:3,])
+            output = tf.argmax(output, dimension = 3)
+            pred = tf.expand_dims(output, dim = 3)
+
+            config = tf.ConfigProto()
+            config.gpu_options.per_process_gpu_memory_fraction = 0.4
+            config.allow_soft_placement = True
+            config.log_device_placement = False
+
+            sess = tf.Session(graph = segment_graph, config = config)
+
+    return sess, pred, x
+```
+
+You can also run inference.py on that exported .pb model with flas --pb-file.
+```
+python3 inference.py --img-path ../1.jpg --pb-file ../frozen_icnet.pb
+```
+
+You can also try to quantize weights and transform graph to smaller size if you want. Check how to do that [here](https://www.tensorflow.org/performance/quantization).
 
 ## Citation
     @article{zhao2017icnet,

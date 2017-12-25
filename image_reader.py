@@ -143,8 +143,8 @@ def read_images_from_disk(input_queue, input_size, random_scale, random_mirror, 
         
         def crop_img(a, b, img = image, label = answer):
             # Randomly crops the images and labels.
-            h_rate = tf.random_uniform(shape = [1], minval = 0.5, maxval = 1.0, dtype = tf.float32)
-            w_rate = tf.random_uniform(shape = [1], minval = 0.5, maxval = 1.0, dtype = tf.float32)
+            h_rate = tf.random_uniform(shape = [1], minval = 0.4, maxval = 1.0, dtype = tf.float32)
+            w_rate = tf.random_uniform(shape = [1], minval = 0.4, maxval = 1.0, dtype = tf.float32)
             random_h = tf.cast(tf.cast(h, tf.float32) * h_rate, tf.int32)
             random_w = tf.cast(tf.cast(w, tf.float32) * w_rate, tf.int32)
 

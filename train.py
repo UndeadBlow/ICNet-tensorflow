@@ -102,7 +102,7 @@ def create_loss(output, label, num_classes, ignore_label, use_w = False):
 
             mask = tf.zeros_like(loss)
             for i, w in enumerate(CLASS_WEIGHTS):
-                # mask = mask + tf.cast(tf.equal(gt, i), tf.float32) * tf.constant(w)
+                #mask = mask + tf.cast(tf.equal(gt, i), tf.float32) * tf.constant(w)
                 preds = tf.unstack(pred, axis = -1)[0]
                 mask = mask + tf.cast(tf.logical_or(tf.equal(gt, i), tf.equal(preds, i)), tf.float32) * tf.constant(w)
 
@@ -251,7 +251,7 @@ def main():
         start_time = time.time()
         
         if LR_SHEDULE != {}:
-            if step == LR_SHEDULE.keys()[0]:
+            if step >= LR_SHEDULE.keys()[0]:
                 tf.assign(learning_rate, LR_SHEDULE.popitem()[0])
 
         feed_dict = {step_ph: step}

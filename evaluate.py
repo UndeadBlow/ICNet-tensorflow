@@ -64,10 +64,6 @@ def get_arguments():
                         help="How often to evaluate model, seconds")
     parser.add_argument("--batch-size", type=int, default=batch_size,
                         help="Size of batch")
-    parser.add_argument("--measure-time", action="store_true", default=False,
-                        help="Evaluate only model inference time")
-    parser.add_argument("--runs", type=int, default=100,
-                        help="Repeats for time measure. More runs - longer testing - more precise results")
 
 
 
@@ -76,30 +72,6 @@ def get_arguments():
 def load(saver, sess, ckpt_path):
     saver.restore(sess, ckpt_path)
     print("Restored model parameters from {}".format(ckpt_path))
-
-def calculate_perfomance(sess, image_batch, raw_output, shape, runs = 1000, batch_size = 1):
-
-    start = time.time()
-
-    print('Calculating inference time...\n')
-    # To exclude numpy generating time
-    N = 10
-    for i in range(0, N):
-        img = np.random.random((batch_size, shape[0], shape[1], 3))
-    stop = time.time()
-
-    time_for_generate = (stop - start) / N
-
-    start = time.time()
-    for i in range(runs):
-        sess.run(raw_output, feed_dict = {image_batch : img})
-
-    stop = time.time()
-
-    inf_time = ((stop - start) / float(runs)) - time_for_generate
-
-    print('Average inference time: {}'.format(inf_time))
-
 
 def save_model(step, iou, checkpint_dir, output_dir):
 
@@ -142,7 +114,7 @@ def load_last_best_iou(dir):
     
     return best_iou
 
-def evaluate_checkpoint(model_path, args, measure_time_only):
+def evaluate_checkpoint(model_path, args):
     coord = tf.train.Coordinator()
 
     tf.reset_default_graph()
@@ -212,11 +184,6 @@ def evaluate_checkpoint(model_path, args, measure_time_only):
 
     saver = tf.train.Saver(var_list = restore_var)
     load(saver, sess, model_path)
-
-
-    if measure_time_only:
-        calculate_perfomance(sess, image_batch, raw_output, INPUT_SIZE, args.runs, args.batch_size)
-        return None, None
     
 
     for step in range(num_steps):
@@ -240,12 +207,7 @@ def evaluate_checkpoint(model_path, args, measure_time_only):
 def main():
     args = get_arguments()
 
-    if args.measure_time:
-        model_path = tf.train.latest_checkpoint(args.snapshot_dir)
-        global_step = int(os.path.basename(model_path).split('-')[1])
-        evaluate_checkpoint(model_path, args, measure_time_only = True)
-
-    elif args.repeated_eval:
+    if args.repeated_eval:
 
         last_evaluated_model_path = None
 
@@ -272,7 +234,7 @@ def main():
                 
                 summary_writer = tf.summary.FileWriter(eval_path)
 
-                summ, iou = evaluate_checkpoint(last_evaluated_model_path, args, False)
+                summ, iou = evaluate_checkpoint(last_evaluated_model_path, args)
                 print('Step', global_step, ', mIOU:', iou)
 
                 if iou > best_iou:

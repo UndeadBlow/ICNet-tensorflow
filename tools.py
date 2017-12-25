@@ -3,6 +3,8 @@ import numpy as np
 from PIL import Image
 import tensorflow as tf
 
+from hyperparams import *
+
 # label_colours = [(128, 64, 128), (244, 35, 231), (69, 69, 69)
 #                 # 0 = road, 1 = sidewalk, 2 = building
 #                 ,(102, 102, 156), (190, 153, 153), (153, 153, 153)
@@ -23,11 +25,6 @@ import tensorflow as tf
 
 #                 ,(44, 88, 166)]
 #                 # 18 = bicycle, 19 = void label
-
-label_colours = [(0, 0, 0), (128, 64, 128)
-                # 0 void label, 1 = road,
-                ,(250, 0, 0)]
-                # 2 = road mark
 
 def decode_labels(mask, num_images=1, num_classes=21):
     """Decode batch of segmentation masks.

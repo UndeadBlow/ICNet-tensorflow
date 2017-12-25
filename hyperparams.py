@@ -8,13 +8,13 @@ BATCH_SIZE = 8
 DATA_LIST_PATH = '/mnt/Data/Datasets/Segmentation/vistas_no_pp/list.txt'
 IGNORE_LABEL = 255
 INPUT_SIZE = '800,800'
-LEARNING_RATE = 5e-2
-MOMENTUM = 0.95
+LEARNING_RATE = 1e-3
+MOMENTUM = 0.9
 NUM_CLASSES = 3
-NUM_STEPS = 100000
+NUM_STEPS = 200000
 POWER = 0.9
 RANDOM_SEED = 1234
-WEIGHT_DECAY = 0.000001
+WEIGHT_DECAY = 0.0001
 PRETRAINED_MODEL = './model/icnet_cityscapes_trainval_90k_bnnomerge.npy'
 SNAPSHOT_DIR = './snapshots/'
 SAVE_NUM_IMAGES = 8
@@ -28,9 +28,14 @@ CLASS_WEIGHTS = [1.0, 1.0, 3.0]
 CROP_MUSTHAVE_CLASS_INDEX = 2
 
 # For ICNet, Loss Function = LAMBDA1 * sub4_loss + LAMBDA2 * sub24_loss + LAMBDA3 * sub124_loss
-LAMBDA1 = 0.4
+LAMBDA1 = 0.16
 LAMBDA2 = 0.4
 LAMBDA3 = 1.0
 
 # Pairs epoch - learning rate. Set to {} to remove LR shedule
-LR_SHEDULE = {0 : 5e-2, 20000 : 3e-3, 60000 : 1e-4}
+LR_SHEDULE = {}
+
+
+label_colours = [(0, 0, 0), (128, 64, 128), (250, 0, 0)]
+                # 0 void label, 1 = road, 2 = road mark
+label_names = ['void', 'road', 'mark']
