@@ -179,27 +179,26 @@ def load_from_checkpoint(shape, path):
     return sess, pred, x
 
 def load_from_pb(shape, path):
-    with tf.device("/job:localhost/replica:0/task:0/device:XLA_GPU:0"):
-        segment_graph = tf.Graph()
-        with segment_graph.as_default():
-            seg_graph_def = tf.GraphDef()
-            with tf.gfile.GFile(path, 'rb') as fid:
-                serialized_graph = fid.read()
-                seg_graph_def.ParseFromString(serialized_graph)
+    segment_graph = tf.Graph()
+    with segment_graph.as_default():
+        seg_graph_def = tf.GraphDef()
+        with tf.gfile.GFile(path, 'rb') as fid:
+            serialized_graph = fid.read()
+            seg_graph_def.ParseFromString(serialized_graph)
 
-                tf.import_graph_def(seg_graph_def, name = '')
+            tf.import_graph_def(seg_graph_def, name = '')
 
-                x = segment_graph.get_tensor_by_name('input:0')
+            x = segment_graph.get_tensor_by_name('input:0')
 
-                pred = segment_graph.get_tensor_by_name('indices:0')
+            pred = segment_graph.get_tensor_by_name('indices:0')
 
-                config = tf.ConfigProto()
-                #config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
-                config.gpu_options.per_process_gpu_memory_fraction = 0.9
-                config.allow_soft_placement = True
-                config.log_device_placement = False
+            config = tf.ConfigProto()
+            config.graph_options.optimizer_options.do_common_subexpression_elimination = True
+            config.gpu_options.per_process_gpu_memory_fraction = 0.9
+            config.allow_soft_placement = True
+            config.log_device_placement = False
 
-                sess = tf.Session(graph = segment_graph, config = config)
+            sess = tf.Session(graph = segment_graph, config = config)
 
     return sess, pred, x
 
