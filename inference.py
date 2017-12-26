@@ -192,7 +192,7 @@ def load_from_pb(shape, path):
 
             pred = segment_graph.get_tensor_by_name('indices:0')
 
-            tf.ConfigProto(
+            config = tf.ConfigProto(
             device_count = {'CPU': 0}
             )
             config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_2
