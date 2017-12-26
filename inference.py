@@ -48,11 +48,15 @@ def calculate_perfomance(sess, input, raw_output, shape, runs = 1000, batch_size
     for i in range(0, N):
         img = np.random.random((batch_size, shape[0], shape[1], 3))
     stop = time.time()
+    
+    # warm up
+    sess.run(raw_output, feed_dict = {input : img})
 
     time_for_generate = (stop - start) / N
 
     start = time.time()
     for i in range(runs):
+        img = np.random.random((batch_size, shape[0], shape[1], 3))
         sess.run(raw_output, feed_dict = {input : img})
 
     stop = time.time()
