@@ -192,12 +192,10 @@ def load_from_pb(shape, path):
 
             pred = segment_graph.get_tensor_by_name('indices:0')
 
-            config = tf.ConfigProto(
-            device_count = {'CPU': 0}
-            )
-            config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_2
+            config = tf.ConfigProto()
+            config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
             config.gpu_options.per_process_gpu_memory_fraction = 0.9
-            config.allow_soft_placement = False
+            config.allow_soft_placement = True
             config.log_device_placement = False
 
             sess = tf.Session(graph = segment_graph, config = config)
