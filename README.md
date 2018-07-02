@@ -187,7 +187,7 @@ def load_from_pb(shape, path):
             
             tf.import_graph_def(seg_graph_def, {'input:0': img_tf}, name = '')
 
-            raw_output = segment_graph.get_tensor_by_name('conv6_cls/BiasAdd:0')
+            raw_output = segment_graph.get_tensor_by_name('conv6/BiasAdd:0')
             output = tf.image.resize_bilinear(raw_output, tf.shape(img_tf)[1:3,])
             output = tf.argmax(output, dimension = 3)
             pred = tf.expand_dims(output, dim = 3)

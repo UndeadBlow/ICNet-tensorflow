@@ -40,7 +40,7 @@ def image_mirroring(img, label):
     label = tf.reverse(label, mirror)
     return img, label
 
-def random_crop_and_pad_image_and_labels(image, label, crop_h, crop_w, ignore_label=255):
+def random_crop_and_pad_image_and_labels(image, label, crop_h, crop_w, pad_h, pad_w, input_size, ignore_label):
     """
     Randomly crop and pads the input images.
 
@@ -52,23 +52,27 @@ def random_crop_and_pad_image_and_labels(image, label, crop_h, crop_w, ignore_la
       ignore_label: Label to ignore during the training.
     """
 
-    label = tf.cast(label, dtype=tf.float32)
+    label = tf.cast(label, dtype = tf.float32)
     label = label - ignore_label # Needs to be subtracted and later added due to 0 padding.
-    combined = tf.concat(axis=2, values=[image, label]) 
-    image_shape = tf.shape(image)
-    #combined_pad = tf.image.pad_to_bounding_box(combined, 0, 0, tf.maximum(crop_h, image_shape[0]), tf.maximum(crop_w, image_shape[1]))
+    combined = tf.concat(axis = 2, values = [image, label])
     
     last_image_dim = tf.shape(image)[-1]
-    last_label_dim = tf.shape(label)[-1]
+    #last_label_dim = tf.shape(label)[-1]
 
-    size = tf.stack([crop_h, crop_w, tf.constant([4])], axis=0)
-    size = tf.squeeze(size)
+    use_crop = tf.random_uniform(shape = [1], minval = 0.0, maxval = 1.0, dtype = tf.float32)[0]
+    use_pad = tf.random_uniform(shape = [1], minval = 0.0, maxval = 1.0, dtype = tf.float32)[0]
+    crop_size = tf.stack([crop_h, crop_w, 4], axis = 0)
+    combined_crop = tf.cond(use_crop <= CROP_PROB, lambda : combined, lambda : tf.random_crop(combined, crop_size))
+    
+    rows_shift = tf.cast((pad_h - input_size[1]) / 2, dtype = tf.int32)
+    cols_shift = tf.cast((pad_w - input_size[0]) / 2, dtype = tf.int32)
+    pads = tf.stack([[rows_shift, rows_shift], [cols_shift, cols_shift], [0, 0]])
+    combined_crop = tf.cond(use_pad <= PAD_PROB, lambda : combined_crop, lambda : tf.pad(combined_crop, pads))
 
-    combined_crop = tf.random_crop(combined, size)
     img_crop = combined_crop[:, :, :last_image_dim]
     label_crop = combined_crop[:, :, last_image_dim:]
     label_crop = label_crop + ignore_label
-    label_crop = tf.cast(label_crop, dtype=tf.uint8)
+    label_crop = tf.cast(label_crop, dtype = tf.uint8)
 
     return img_crop, label_crop  
 
@@ -112,19 +116,22 @@ def read_images_from_disk(input_queue, input_size, random_scale, random_mirror, 
       Two tensors: the decoded image and its mask.
     """
 
-
     img_contents = tf.read_file(input_queue[0])
     label_contents = tf.read_file(input_queue[1])
     
     img = tf.image.decode_jpeg(img_contents, channels=3)
+    answer = tf.image.decode_png(label_contents, channels=1)
+    
+    img = tf.image.resize_images(img, input_size)
+    answer = tf.image.resize_nearest_neighbor(tf.expand_dims(answer, 0), input_size)
+    answer = tf.squeeze(answer, squeeze_dims=[0])
+   
     img_r, img_g, img_b = tf.split(axis=2, num_or_size_splits=3, value=img)
     img = tf.cast(tf.concat(axis=2, values=[img_b, img_g, img_r]), dtype=tf.float32)
     
     # Extract mean.
     image = img - img_mean
 
-    answer = tf.image.decode_png(label_contents, channels=1)
-    
     if input_size is None:
         print('WTF?!?!')
         quit()
@@ -141,34 +148,21 @@ def read_images_from_disk(input_queue, input_size, random_scale, random_mirror, 
 
     if train:
         
-        def crop_img(a, b, img = image, label = answer):
-            # Randomly crops the images and labels.
-            h_rate = tf.random_uniform(shape = [1], minval = 0.4, maxval = 1.0, dtype = tf.float32)
-            w_rate = tf.random_uniform(shape = [1], minval = 0.4, maxval = 1.0, dtype = tf.float32)
-            random_h = tf.cast(tf.cast(h, tf.float32) * h_rate, tf.int32)
-            random_w = tf.cast(tf.cast(w, tf.float32) * w_rate, tf.int32)
+        h_rate = tf.random_uniform(shape = [1], minval = MIN_CROP, maxval = MAX_CROP, dtype = tf.float32)
+        w_rate = tf.random_uniform(shape = [1], minval = MIN_CROP, maxval = MAX_CROP, dtype = tf.float32)
+        crop_h = tf.cast(tf.cast(h, tf.float32) * h_rate, tf.int32)[0]
+        crop_w = tf.cast(tf.cast(w, tf.float32) * w_rate, tf.int32)[0]
 
-            img, label = random_crop_and_pad_image_and_labels(img, label, random_h, random_w, ignore_label)
+        h_rate = tf.random_uniform(shape = [1], minval = MIN_PAD, maxval = MAX_PAD, dtype = tf.float32)
+        w_rate = tf.random_uniform(shape = [1], minval = MIN_PAD, maxval = MAX_PAD, dtype = tf.float32)
+        pad_h = tf.cast(tf.cast(h, tf.float32) * h_rate, tf.int32)[0]
+        pad_w = tf.cast(tf.cast(w, tf.float32) * w_rate, tf.int32)[0]
 
-            return img, label
-
-        
-        img, label = crop_img(0, 0)
-
-        if CROP_MUSTHAVE_CLASS_INDEX != -1:
-
-            def is_img_not_ok(img = img, label = label): 
-                mask = tf.equal(label, CROP_MUSTHAVE_CLASS_INDEX)
-                any = tf.reduce_any(mask)
-                return tf.logical_not(any)
-            
-            img, label = tf.while_loop(is_img_not_ok, crop_img, loop_vars=[img, label]) 
+        img, label = random_crop_and_pad_image_and_labels(image, answer, crop_h, crop_w, pad_h, pad_w, input_size, ignore_label)
 
     else:
         img = image
         label = answer
-
-            
 
     img = tf.image.resize_images(img, input_size)
     label = tf.image.resize_nearest_neighbor(tf.expand_dims(label, 0), input_size)
@@ -176,7 +170,7 @@ def read_images_from_disk(input_queue, input_size, random_scale, random_mirror, 
 
     img.set_shape([h, w, 3])
     label.set_shape([h, w, 1])
-
+    
     return img, label
 
 class ImageReader(object):

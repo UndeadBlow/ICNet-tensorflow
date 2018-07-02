@@ -17,6 +17,7 @@ import numpy as np
 from scipy import misc
 
 from model import ICNet_BN
+from model import PSPNet50, PSPNet101
 from tools import decode_labels
 
 import train
@@ -75,6 +76,8 @@ def get_arguments():
                         help="Path to to pb file, alternative for checkpoint. If set, checkpoints will be ignored")
     parser.add_argument("--weighted", action="store_true", default=False,
                         help="If true, will output weighted images")
+    parser.add_argument("--model", type=str, default='ICNet_BN',
+                        help="Model of network if restore from checkpoint")
     parser.add_argument("--batch-size", type=int, default=1,
                         help="Size of batch for time measure")
     parser.add_argument("--measure-time", action="store_true", default=False,
@@ -118,11 +121,11 @@ def load_img(img_path):
 def preprocess(img):
     # Convert RGB to BGR
     # img_r, img_g, img_b = tf.split(axis=2, num_or_size_splits=3, value=img)
-    img = tf.cast(img, dtype=tf.float32)
+    img = tf.cast(img, dtype = tf.float32)
     # Extract mean.
     img -= IMG_MEAN
     
-    img = tf.expand_dims(img, dim=0)
+    img = tf.expand_dims(img, dim = 0)
 
     return img
 
@@ -142,16 +145,21 @@ def check_input(img):
 
     return img, shape
 
-def load_from_checkpoint(shape, path):
+def load_from_checkpoint(shape, path, model = 'ICNet_BN'):
     x = tf.placeholder(dtype = tf.float32, shape = shape)
     img_tf = preprocess(x)
     img_tf, n_shape = check_input(img_tf)
 
     # Create network.
-    net = ICNet_BN({'data': img_tf}, is_training = False, num_classes = num_classes)
+    if model == 'ICNet_BN':
+        net = ICNet_BN({'data': img_tf}, is_training = False, num_classes = num_classes)
+    elif model == 'PSPNet50':
+        net = PSPNet50({'data': img_tf}, is_training = False, num_classes = num_classes)
+    elif model == 'PSPNet101':
+        net = PSPNet101({'data': img_tf}, is_training = False, num_classes = num_classes)
 
     # Predictions.
-    raw_output = net.layers['conv6_cls']
+    raw_output = net.layers['conv6']
     print('raw_output', raw_output)
     output = tf.image.resize_bilinear(raw_output, tf.shape(img_tf)[1:3,])
     output = tf.argmax(output, dimension = 3)
@@ -210,7 +218,7 @@ def main():
     shape = (int(shape[0]), int(shape[1]), 3)
 
     if args.pb_file == '':
-        sess, pred, x = load_from_checkpoint(shape, args.snapshots_dir)
+        sess, pred, x = load_from_checkpoint(shape, args.snapshots_dir, args.model)
     else:
         sess, pred, x = load_from_pb(shape, args.pb_file)
 
@@ -230,18 +238,18 @@ def main():
         t = time.time()
         preds = sess.run(pred, feed_dict = {x: img})
 
-        #print('time: ', time.time() - t)
-        #print('output shape: ', preds.shape)
+        print('time: ', time.time() - t)
+        print('output shape: ', preds.shape)
 
-        msk = decode_labels(preds, num_classes=num_classes)
+        msk = decode_labels(preds, num_classes = num_classes)
         im = msk[0]
         #print('im', im.shape)
 
         if not os.path.exists(args.save_dir):
             os.makedirs(args.save_dir)
 
-        im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
-        img = cv2.cvtColor(orig_img, cv2.COLOR_BGR2RGB)
+        im = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
+        img = cv2.cvtColor(orig_img, cv2.COLOR_RGB2BGR)
 
         if args.weighted:
             indx = (im == [0, 0, 0])

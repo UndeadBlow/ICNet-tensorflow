@@ -132,13 +132,13 @@ def main():
             coord)
         image_batch, label_batch = reader.dequeue(args.batch_size)
     
-    net = ICNet_BN({'data': image_batch}, is_training=True, num_classes=args.num_classes)
+    net = ICNet_BN({'data': image_batch}, is_training = True, num_classes = args.num_classes)
     
     sub4_out = net.layers['sub4_out']
     sub24_out = net.layers['sub24_out']
-    sub124_out = net.layers['conv6_cls']
+    sub124_out = net.layers['conv6']
 
-    fc_list = ['conv6_cls']
+    fc_list = ['conv6']
 
     restore_var = tf.global_variables()
     all_trainable = [v for v in tf.trainable_variables() if ('beta' not in v.name and 'gamma' not in v.name) or args.train_beta_gamma]

@@ -51,7 +51,7 @@ def run_on_video(video_filename, out_filename, model_path, num_classes, save_to 
     
     net = ICNet_BN({'data': img_tf}, num_classes = num_classes)
     
-    raw_output = net.layers['conv6_cls']
+    raw_output = net.layers['conv6']
     
     # Predictions.
     raw_output_up = tf.image.resize_bilinear(raw_output, size=n_shape, align_corners=True)
@@ -83,10 +83,10 @@ def run_on_video(video_filename, out_filename, model_path, num_classes, save_to 
     out_cap = None
     if save_to == 'double_screen':
         out_cap = cv2.VideoWriter(out_filename.replace('.mp4', '.avi'), 
-                cv2.VideoWriter_fourcc(*"MJPG"), 20, (canvas_size[0], canvas_size[1]))
+                cv2.VideoWriter_fourcc(*"MJPG"), 60, (canvas_size[0], canvas_size[1]))
     elif save_to == 'weighted':
         out_cap = cv2.VideoWriter(out_filename.replace('.mp4', '.avi'), 
-                cv2.VideoWriter_fourcc(*"MJPG"), 20, (output_size[0], output_size[1]))
+                cv2.VideoWriter_fourcc(*"MJPG"), 60, (output_size[0], output_size[1]))
 
     # Check if camera opened successfully
     if cap.isOpened() == False: 
@@ -109,9 +109,9 @@ def run_on_video(video_filename, out_filename, model_path, num_classes, save_to 
         
         if out_cap == None and save_to != 'images':
             out_cap = cv2.VideoWriter(out_filename.replace('.mp4', '.avi'), 
-                cv2.VideoWriter_fourcc(*'MJPG'), 20, (image.shape[1], image.shape[0]))
+                cv2.VideoWriter_fourcc(*'MJPG'), 60, (image.shape[1], image.shape[0]))
         elif save_to == 'images' and zf == None:
-            zipfile_name = out_filename.replace('.mp4', '.zip')
+            zipfile_name = out_filename.replace('.avi', '.zip')
 
         original_shape = image.shape
         if image.shape[2] == 1:
@@ -152,7 +152,6 @@ def run_on_video(video_filename, out_filename, model_path, num_classes, save_to 
             out_cap.write(canvas)
 
 
-
         elif save_to == 'simple':
 
             frame = cv2.resize(frame, (original_shape[1], original_shape[0]), interpolation = cv2.INTER_NEAREST)
@@ -166,10 +165,15 @@ def run_on_video(video_filename, out_filename, model_path, num_classes, save_to 
 
             frame = cv2.resize(frame, (original_shape[1], original_shape[0]), interpolation = cv2.INTER_NEAREST)
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            image = cv2.resize(image, (original_shape[1], original_shape[0]), interpolation = cv2.INTER_NEAREST)
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             cv2.imwrite('/tmp/1.png', frame)
+            #cv2.imwrite('/tmp/1_orig.png', image)
             zf = zipfile.ZipFile(zipfile_name, "a", zipfile.ZIP_DEFLATED)
             name = 'frame_' + '%08d' % frame_num + '.png'
+            orig_name = 'frame_orig_' + '%08d' % frame_num + '.png'
             zf.write('/tmp/1.png', name)
+            #zf.write('/tmp/1_orig.png', orig_name)
             zf.close()
 
         elif save_to == 'weighted':
@@ -259,5 +263,5 @@ def getRoadCoords(mask, road_index = 1):
 if __name__ == '__main__':
     #run_on_video('/home/undead/Downloads/lanes/nick.avi', '/home/undead/Downloads/lanes/nick_out_800.mp4',
     #             '/home/undead/reps/ICNetUB/best_models/miou_0.4607', num_classes = 3, save_to = 'images', alpha = 0.5, beta = 0.5, step = 1)
-    run_on_video('/home/undead/Downloads/lanes/minisample2.mp4', '/home/undead/Downloads/lanes/mini_out_w_800.mp4',
-                 '/home/undead/reps/ICNetUB/miou_0.4480/', num_classes = 3, save_to = 'images', alpha = 0.5, beta = 0.5, step = 1)
+    run_on_video('/home/undead/segment/lkas.mp4', '/home/undead/segment/lkas_out.avi',
+                 '/home/undead/reps/ICNetUB/miou_0.4648_1280', num_classes = 3, save_to = 'weighted', alpha = 0.5, beta = 0.5, step = 1)

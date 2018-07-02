@@ -16,7 +16,7 @@ import cv2
 import json
 
 from pathos.multiprocessing import ProcessingPool as Pool
-
+pool = Pool(ncpus = 4)
 
 def pure_name(name):
     name = name[name.rfind('/') + 1 : name.rfind('.')]
@@ -269,7 +269,8 @@ vistas_map = { 'Bird' : 'alive',
  'Unlabeled' : 'unlabeled'
 }
 
-vistas_map_only_mark = { 'Bird' : 'unlabeled', 
+vistas_map_only_mark = { 
+  'Bird' : 'unlabeled', 
  'Ground Animal' : 'unlabeled', 
  'Curb' : 'unlabeled', 
  'Fence' : 'unlabeled', 
@@ -337,6 +338,111 @@ vistas_map_only_mark = { 'Bird' : 'unlabeled',
  'Unlabeled' : 'unlabeled'
 }
 
+cityscape_cityscape = { 
+ 'unlabeled' : 'unlabeled',
+ 'ego vehicle' : 'unlabeled',
+ 'rectification border' : 'unlabeled',
+ 'out of roi' : 'unlabeled',
+ 'static' : 'unlabeled',
+ 'dynamic' : 'person',
+ 'ground' : 'ground',
+ 'road' : 'road',
+ 'sidewalk' : 'sidewalk',
+ 'parking' : 'road',
+ 'rail track' : 'rail track',
+ 'building' : 'building',
+ 'wall' : 'wall',
+ 'fence' : 'fence',
+ 'guard rail' : 'guard rail',
+ 'bridge' : 'bridge',
+ 'tunnel' : 'tunnel',
+ 'pole' : 'pole',
+ 'polegroup' : 'pole',
+ 'traffic light' : 'traffic light',
+ 'traffic sign' : 'traffic sign',
+ 'vegetation' : 'vegetation',
+ 'terrain' : 'terrain',
+ 'sky' : 'sky',
+ 'person' : 'person',
+ 'rider' : 'rider',
+ 'car' : 'car',
+ 'truck' : 'truck',
+ 'bus' : 'bus',
+ 'caravan' : 'caravan',
+ 'trailer' : 'trailer',
+ 'train' : 'train',
+ 'motorcycle' : 'motorcycle',
+ 'bicycle' : 'motorcycle'
+ }
+
+vistas_cityscape = { 
+ 'Bird' : 'person', 
+ 'Ground Animal' : 'person', 
+ 'Curb' : 'sidewalk', 
+ 'Fence' : 'fence', 
+ 'Guard Rail' : 'guard rail', 
+ 'Barrier' : 'wall', 
+ 'Wall' : 'wall', 
+ 'Bike Lane' : 'sidewalk', 
+ 'Crosswalk - Plain' : 'road', 
+ 'Curb Cut' : 'sidewalk', 
+ 'Parking' : 'road', 
+ 'Pedestrian Area' : 'sidewalk', 
+ 'Rail Track' : 'rail track', 
+ 'Road' : 'road', 
+ 'Service Lane' : 'road', 
+ 'Sidewalk' : 'sidewalk', 
+ 'Bridge' : 'bridge', 
+ 'Building' : 'building', 
+ 'Tunnel' : 'tunnel', 
+ 'Person' : 'person', 
+ 'Bicyclist' : 'rider', 
+ 'Motorcyclist' : 'rider', 
+ 'Other Rider' : 'rider', 
+ 'Lane Marking - Crosswalk' : 'road', 
+ 'Lane Marking - General' : 'road', 
+ 'Mountain' : 'terrain', 
+ 'Sand' : 'ground', 
+ 'Sky' : 'sky', 
+ 'Snow' : 'ground', 
+ 'Terrain' : 'terrain', 
+ 'Vegetation' : 'vegetation', 
+ 'Water' : 'terrain', 
+ 'Banner' : 'traffic sign', 
+ 'Bench' : 'building', 
+ 'Bike Rack' : 'unlabeled', 
+ 'Billboard' : 'traffic sign', 
+ 'Catch Basin' : 'unlabeled',
+ 'CCTV Camera' : 'unlabeled', 
+ 'Fire Hydrant' : 'pole', 
+ 'Junction Box' : 'pole', 
+ 'Mailbox' : 'pole', 
+ 'Manhole' : 'unlabeled', 
+ 'Phone Booth' : 'building', 
+ 'Pothole' : 'unlabeled', 
+ 'Street Light' : 'pole', 
+ 'Pole' : 'pole', 
+ 'Traffic Sign Frame' : 'traffic sign', 
+ 'Utility Pole' : 'pole', 
+ 'Traffic Light' : 'traffic light', 
+ 'Traffic Sign (Back)' : 'traffic sign', 
+ 'Traffic Sign (Front)' : 'traffic sign', 
+ 'Trash Can' : 'pole', 
+ 'Bicycle' : 'motorcycle', 
+ 'Boat' : 'car', 
+ 'Bus' : 'bus', 
+ 'Car' : 'car', 
+ 'Caravan' : 'caravan', 
+ 'Motorcycle' : 'motorcycle', 
+ 'On Rails' : 'train', 
+ 'Other Vehicle' : 'car', 
+ 'Trailer' : 'trailer', 
+ 'Truck' : 'truck', 
+ 'Wheeled Slow' : 'motorcycle', 
+ 'Car Mount' : 'unlabeled', 
+ 'Ego Vehicle' : 'unlabeled', 
+ 'Unlabeled' : 'unlabeled'
+}
 
 def convert_vistas_labels_to_txt(filename, outputname):
     with open(filename, 'r') as f:
@@ -440,7 +546,7 @@ def _process_index_to_index(filename, names_map, orig_map, dist_map, must_have_i
         i = (img == orig_map[name])
         return name, i
 
-    result = Pool(ncpus = 16).map(get_indx, orig_map.keys())
+    result = pool.map(get_indx, orig_map.keys())
 
     for res in result:
         name = res[0]
@@ -524,7 +630,7 @@ def _process_convert_to_index(filename, names_map, orig_map, dist_map, must_have
         i = np.where((img == orig_map[name]).all(axis = 2))
         return name, i
 
-    result = Pool(ncpus = 1).map(get_indx, orig_map.keys())
+    result = pool.map(get_indx, orig_map.keys())
 
     for res in result:
         name = res[0]
@@ -586,6 +692,59 @@ def convert_colors(path_orig, colormap_original, colormap_dist, names_map, mask 
 
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         cv2.imwrite(filename, img)
+
+def merge_cityscape_into_dir_indeces(images_path, dist, names_map, orig_map, dist_map):
+    images = navmii_utils.GetAllFilesListRecusive(images_path, ['_leftImg8bit.png'])
+    labels = navmii_utils.GetAllFilesListRecusive(images_path, ['_gtFine_labelIds.png'])
+
+    orig_map = load_index_map(orig_map)
+    dist_map = load_index_map(dist_map)
+    
+    list_out = ''
+    i = 0
+    uns = 0
+    for img in images:
+
+        i = i + 1
+        sys.stdout.flush()
+        sys.stdout.write('\r>> Copying image %d/%d' % (i, len(images)))
+        sys.stdout.flush()
+
+        pure_name = img[img.rfind('/') + 1: ]
+        new_img_name = dist + '/' + pure_name
+
+        mask_names = [label for label in labels if pure_name.replace('_leftImg8bit.png', '_gtFine_labelIds.png') in label]
+                          
+        if len(mask_names) != 1:
+            print('WTF???', mask_names, pure_name)
+            continue
+
+        mask_name = mask_names[0]
+        new_mask_name = dist + '/' + pure_name[: pure_name.rfind('.')] + '_L.png'
+
+        t = time.time()
+        success, im = _process_index_to_index(mask_name, names_map, orig_map, 
+                                              dist_map, must_have_index = 2, 
+                                              must_have_percent = 0.0015, size = (1280, 1280))
+        #print(time.time() - t)
+
+        # No road mark on image therefore
+        if not success:
+            
+            print('Unsuccess percent: ', (uns / float(i)) * 100.0)
+            uns = uns + 1
+            continue
+        
+        cv2.imwrite(new_mask_name, im)
+
+        im = cv2.imread(img)
+        im = cv2.resize(im, (1280, 1280))                                                                                                                                                              
+        cv2.imwrite(new_img_name, im)
+
+        list_out = list_out + new_img_name + ' ' + new_mask_name + '\n'
+
+    with open(dist + '/../valid_list.txt', 'w') as f:
+        f.write(list_out)
 
 def merge_vistas_into_dir_indeces(images_path, labels_path, dist, names_map, orig_map, dist_map):
     images = navmii_utils.GetAllFilesListRecusive(images_path, ['.jpeg', '.png', '.jpg'])
@@ -734,9 +893,50 @@ def resize_in_dir(dir, size, gt_mask = '_L'):
             img = cv2.resize(img, size, interpolation = cv2.INTER_NEAREST)
         cv2.imwrite(f, img)
 
+def convert_custom_to_index(path, colours_list, offset = 20):
+    files = navmii_utils.GetAllFilesListRecusive(path, ['.jpeg', '.png', '.jpg'])
+
+    masks = list([f for f in files if 'mask' in f])
+
+    i = 0
+    for mask in masks:
+        mask_img = cv2.imread(mask)
+        mask_img = cv2.cvtColor(mask_img, cv2.COLOR_BGR2RGB)
+        orig_mask = copy.deepcopy(mask_img)
+
+        # if not isinstance(orig_img, np.ndarray):
+        #     continue
+
+        i = i + 1
+        sys.stdout.flush()
+        sys.stdout.write('\r>> Converting image %d/%d' % (i, len(files)))
+        sys.stdout.flush()
+        
+        for color in colours_list:
+
+            # upper_color = np.array(color) + offset
+            # lower_color = np.array(color) - offset
+            # print(upper_color, lower_color)
+            # color_mask = cv2.inRange(orig_mask, lower_color, upper_color)
+            # print(color_mask)
+            # print(set(color_mask.flatten()))
+
+            # mask_img[np.where(color_mask == [255])] = colours_list.index(color)
+            
+            #index = np.where(np.logical_and(condition_one, condition_two))
+            # print('index', condition_one, color)
+            #mask_img[index] = colours_list.index(color)
+            mask_img[np.where((mask_img == color).all(axis = 2))] = colours_list.index(color)
+
+        color_mask = cv2.inRange(mask_img, np.array([0, 0, 0]), np.array([len(colours_list) - 1] * 3))
+        print(color_mask)
+        mask_img[np.where(color_mask == 0)] = 0
+        mask_img = cv2.cvtColor(mask_img, cv2.COLOR_BGR2RGB)
+        cv2.imwrite(mask, mask_img)
+
 if __name__ == '__main__':
     # convert_indeces_to_txt('/mnt/Data/Datasets/Segmentation/mapillary-vistas-dataset_public_v1.0/config.json', 
-    #                             '/mnt/Data/Datasets/Segmentation/mapillary-vistas-dataset_public_v1.0/index_labels.txt')
+    #                        '/mnt/Data/Datasets/Segmentation/mapillary-vistas-dataset_public_v1.0/index_labels.txt')
     #merge_vistas_into_dir('/mnt/Data/Datasets/Segmentation/mapillary_3_class_big/training/images',
     #'/mnt/Data/Datasets/Segmentation/mapillary_3_class_big/training/labels',
     #'/mnt/Data/Datasets/Segmentation/mapillary_3_class_big/merged',
@@ -745,15 +945,22 @@ if __name__ == '__main__':
     #names_map = vistas_map_only_mark)
 
 
-    #create_list('/mnt/Data/Datasets/Segmentation/vistas_no_pp/merged',
-    #            '/mnt/Data/Datasets/Segmentation/vistas_no_pp/list.txt', '.jpg')
+    # create_list('/mnt/Data/Datasets/Segmentation/mapillary-vistas-dataset_public_v1.0/cityscaped',
+    #            '/mnt/Data/Datasets/Segmentation/mapillary-vistas-dataset_public_v1.0/cityscaped.txt', '.jpg')
 
-    merge_vistas_into_dir_indeces('/mnt/Data/Datasets/Segmentation/vistas_no_pp/validation/images',
-    '/mnt/Data/Datasets/Segmentation/vistas_no_pp/validation/instances',
-    '/mnt/Data/Datasets/Segmentation/vistas_no_pp/merged_valid',
-    orig_map = '/mnt/Data/Datasets/Segmentation/vistas_no_pp/index_labels.txt',
-    dist_map = '/mnt/Data/Datasets/Segmentation/Cityscapes/index_map_road_mark.txt',
-    names_map = vistas_map_only_mark)
+    merge_vistas_into_dir_indeces('/mnt/Data/Datasets/Segmentation/mapillary-vistas-dataset_public_v1.0/training/images',
+                                 '/mnt/Data/Datasets/Segmentation/mapillary-vistas-dataset_public_v1.0/training/instances',
+                                 '/mnt/Data/Datasets/Segmentation/mapillary-vistas-dataset_public_v1.0/cityscaped',
+                                 orig_map = '/mnt/Data/Datasets/Segmentation/mapillary-vistas-dataset_public_v1.0/index_labels.txt',
+                                 dist_map = '/mnt/Data/Datasets/Segmentation/Cityscapes/cityscape_color_index.txt',
+                                 names_map = vistas_cityscape)
+    # merge_cityscape_into_dir_indeces('/mnt/Data/Datasets/Segmentation/Cityscapes/gtFine_trainvaltest/gtFine',
+    #                                  '/mnt/Data/Datasets/Segmentation/Cityscapes/remapped',
+    #                                  orig_map = '/mnt/Data/Datasets/Segmentation/Cityscapes/cityscape_color_index_original.txt',
+    #                                  dist_map = '/mnt/Data/Datasets/Segmentation/Cityscapes/cityscape_color_index.txt',
+    #                                  names_map = cityscape_cityscape)
+
+    #convert_custom_to_index('/home/undead/segment/ld_out/test', label_only_mark)
 
     # convert_colors_to_index('/mnt/Data/Datasets/Segmentation/Camvid/dataset', '/mnt/Data/Datasets/Segmentation/Camvid/class_codes.txt',
     # '/mnt/Data/Datasets/Segmentation/Cityscapes/color_map_road_mark.txt', camvid_only_mark, mask = '_L')

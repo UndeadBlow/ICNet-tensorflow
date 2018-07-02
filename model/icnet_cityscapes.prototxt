@@ -1895,10 +1895,10 @@ layer {
   }
 }
 layer {
-  name: "conv6_cls"
+  name: "conv6"
   type: "Convolution"
   bottom: "sub12_sum_interp"
-  top: "conv6_cls"
+  top: "conv6"
   param {
     lr_mult: 1
     decay_mult: 1
@@ -1919,7 +1919,7 @@ layer {
 layer {
   name: "conv6_interp"
   type: "Interp"
-  bottom: "conv6_cls"
+  bottom: "conv6"
   top: "conv6_interp"
   interp_param {
     zoom_factor: 4

@@ -144,7 +144,7 @@ def evaluate_checkpoint(model_path, args):
     restore_var = tf.global_variables()
 
     # Predictions.
-    raw_output = net.layers['conv6_cls']
+    raw_output = net.layers['conv6']
 
 
     raw_output_up = tf.image.resize_bilinear(raw_output, size = INPUT_SIZE, align_corners = True)

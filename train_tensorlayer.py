@@ -1,7 +1,3 @@
-"""
-This code is based on DrSleep's framework: https://github.com/DrSleep/tensorflow-deeplab-resnet 
-"""
-
 from __future__ import print_function
 
 import argparse
@@ -10,19 +6,20 @@ import sys
 import time
 
 import tensorflow as tf
+import tensorlayer as tl
 import numpy as np
 
-from model import PSPNet50
+from tensorlayer_nets import deform_unet, u_net, u_net_bn, psp_net
 from tools import decode_labels, prepare_label, inv_preprocess
 from image_reader import ImageReader
 
 from hyperparams import *
 
-SNAPSHOT_DIR = './snapshots_psp/'
+SNAPSHOT_DIR = './snapshots/'
 RESTORE_FROM = ''
 
 def get_arguments():
-    parser = argparse.ArgumentParser(description="DeepLab-ResNet Network")
+    parser = argparse.ArgumentParser(description="U-Network")
     parser.add_argument("--batch-size", type=int, default=BATCH_SIZE,
                         help="Number of images sent to the network in one step.")
 #    parser.add_argument("--data-dir", type=str, default=DATA_DIRECTORY,
@@ -81,6 +78,8 @@ def load(saver, sess, ckpt_path):
     print("Restored model parameters from {}".format(ckpt_path))
 
 def main():
+    # lr_decay = 0.5
+    # decay_every = 100
     """Create the model and start the training."""
     args = get_arguments()
     
@@ -102,52 +101,33 @@ def main():
             coord)
         image_batch, label_batch = reader.dequeue(args.batch_size)
     
-    net = PSPNet50({'data': image_batch}, is_training=True, num_classes=args.num_classes)
-    
-    raw_output = net.layers['conv6']
-
-    # According from the prototxt in Caffe implement, learning rate must multiply by 10.0 in pyramid module
-    fc_list = ['conv5_3_pool1_conv', 'conv5_3_pool2_conv', 'conv5_3_pool3_conv', 'conv5_3_pool6_conv', 'conv6', 'conv5_4']
-    restore_var = [v for v in tf.global_variables() if not (len([f for f in fc_list if f in v.name])) or not args.not_restore_last]
-    all_trainable = [v for v in tf.trainable_variables() if 'gamma' not in v.name and 'beta' not in v.name]
-    fc_trainable = [v for v in all_trainable if v.name.split('/')[0] in fc_list]
-    conv_trainable = [v for v in all_trainable if v.name.split('/')[0] not in fc_list] # lr * 1.0
-    fc_w_trainable = [v for v in fc_trainable if 'weights' in v.name] # lr * 10.0
-    fc_b_trainable = [v for v in fc_trainable if 'biases' in v.name] # lr * 20.0
-    assert(len(all_trainable) == len(fc_trainable) + len(conv_trainable))
-    assert(len(fc_trainable) == len(fc_w_trainable) + len(fc_b_trainable))
+    # Set up tf session and initialize variables. 
+    config = tf.ConfigProto()
+    # config.gpu_options.allow_growth = True
+    # config.allow_soft_placement = True
+    # config.intra_op_parallelism_threads = 1
+    sess = tf.Session(config = config)
+    net = psp_net(image_batch, is_train = True, reuse = False, n_out = NUM_CLASSES)
     
     # Predictions: ignoring all predictions with labels greater or equal than n_classes
+    raw_output = net.outputs
     raw_prediction = tf.reshape(raw_output, [-1, args.num_classes])
     label_proc = prepare_label(label_batch, tf.stack(raw_output.get_shape()[1:3]), num_classes=args.num_classes, one_hot=False) # [batch_size, h, w]
     raw_gt = tf.reshape(label_proc, [-1,])
     indices = tf.squeeze(tf.where(tf.less_equal(raw_gt, args.num_classes - 1)), 1)
     gt = tf.cast(tf.gather(raw_gt, indices), tf.int32)
     prediction = tf.gather(raw_prediction, indices)
-    
                                                                                             
     # Pixel-wise softmax loss.
     loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits = prediction, labels = gt)
-
-    # Make mistakes for class N more important for network
-    if USE_CLASS_WEIGHTS:
-        if len(CLASS_WEIGHTS) != NUM_CLASSES:
-            print('Incorrect class weights, it will be not used')
-        else:
-            mask = tf.zeros_like(loss)
-
-            for i, w in enumerate(CLASS_WEIGHTS):
-                mask = mask + tf.cast(tf.equal(gt, i), tf.float32) * tf.constant(w)
-            loss = loss * mask
-
-    l2_losses = [args.weight_decay * tf.nn.l2_loss(v) for v in tf.trainable_variables() if 'weights' in v.name]
+    t_vars = tf.trainable_variables()
+    l2_losses = [args.weight_decay * tf.nn.l2_loss(v) for v in t_vars if 'kernel' in v.name]
     reduced_loss = tf.reduce_mean(loss) + tf.add_n(l2_losses)
-
 
     # Processed predictions: for visualisation.
     raw_output_up = tf.image.resize_bilinear(raw_output, tf.shape(image_batch)[1:3,])
-    raw_output_up = tf.argmax(raw_output_up, dimension=3)
-    pred = tf.expand_dims(raw_output_up, dim=3)
+    raw_output_up = tf.argmax(raw_output_up, dimension = 3)
+    pred = tf.expand_dims(raw_output_up, dim = 3)
     
     # Image summary.
     images_summary = tf.py_func(inv_preprocess, [image_batch, args.save_num_images, IMG_MEAN], tf.uint8)
@@ -164,45 +144,17 @@ def main():
     base_lr = tf.constant(args.learning_rate)
     step_ph = tf.placeholder(dtype=tf.float32, shape=())
     learning_rate = tf.scalar_mul(base_lr, tf.pow((1 - step_ph / args.num_steps), args.power))
-    
-    # Gets moving_mean and moving_variance update operations from tf.GraphKeys.UPDATE_OPS
-    if args.update_mean_var == False:
-        update_ops = None
-    else:
-        update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
 
-    with tf.control_dependencies(update_ops):
-        opt_conv = tf.train.MomentumOptimizer(learning_rate, args.momentum)
-        opt_fc_w = tf.train.MomentumOptimizer(learning_rate * 10.0, args.momentum)
-        opt_fc_b = tf.train.MomentumOptimizer(learning_rate * 20.0, args.momentum)
-
-        grads = tf.gradients(reduced_loss, conv_trainable + fc_w_trainable + fc_b_trainable)
-        grads_conv = grads[:len(conv_trainable)]
-        grads_fc_w = grads[len(conv_trainable) : (len(conv_trainable) + len(fc_w_trainable))]
-        grads_fc_b = grads[(len(conv_trainable) + len(fc_w_trainable)):]
-
-        train_op_conv = opt_conv.apply_gradients(zip(grads_conv, conv_trainable))
-        train_op_fc_w = opt_fc_w.apply_gradients(zip(grads_fc_w, fc_w_trainable))
-        train_op_fc_b = opt_fc_b.apply_gradients(zip(grads_fc_b, fc_b_trainable))
-
-        train_op = tf.group(train_op_conv, train_op_fc_w, train_op_fc_b)
-        
-    # Set up tf session and initialize variables. 
-    config = tf.ConfigProto()
-    # config.gpu_options.allow_growth = True
-    # config.allow_soft_placement = True
-    # config.intra_op_parallelism_threads = 1
-    sess = tf.Session(config=config)
+    train_op = tf.train.MomentumOptimizer(learning_rate, args.momentum).minimize(reduced_loss, var_list = t_vars)
     init = tf.global_variables_initializer()
-    
     sess.run(init)
     
     # Saver for storing checkpoints of the model.
-    saver = tf.train.Saver(var_list=tf.global_variables(), max_to_keep=10)
+    saver = tf.train.Saver(var_list = tf.global_variables(), max_to_keep = 10)
 
     ckpt = tf.train.get_checkpoint_state(SNAPSHOT_DIR)
     if ckpt and ckpt.model_checkpoint_path:
-        loader = tf.train.Saver(var_list=restore_var)
+        loader = tf.train.Saver(var_list = tf.global_variables())
         load_step = int(os.path.basename(ckpt.model_checkpoint_path).split('-')[1])
         load(loader, sess, ckpt.model_checkpoint_path)
     else:
@@ -210,7 +162,7 @@ def main():
         load_step = 0
 
     # Start queue threads.
-    threads = tf.train.start_queue_runners(coord=coord, sess=sess)
+    threads = tf.train.start_queue_runners(coord = coord, sess = sess)
 
     # Iterate over training steps.
     for step in range(args.num_steps):
@@ -222,9 +174,10 @@ def main():
             summary_writer.add_summary(summary, step)
             save(saver, sess, args.snapshot_dir, step)
         else:
-            z, t, o, p, loss_value, _ = sess.run([raw_gt, raw_output, gt, prediction, reduced_loss, train_op], feed_dict=feed_dict)
-            print(z.shape, t.shape, o.shape, p.shape)
+            # (409600,) (1, 640, 640, 25) (409600,) (409600, 25)
+            loss_value, _ = sess.run([reduced_loss, train_op], feed_dict=feed_dict)
         duration = time.time() - start_time
+        
         print('step {:d} \t loss = {:.3f}, ({:.3f} sec/step)'.format(step, loss_value, duration))
         
     coord.request_stop()

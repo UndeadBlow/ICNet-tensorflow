@@ -1,6 +1,6 @@
-CHECKPOINT_FILE=/home/undead/reps/ICNetUB/miou_0.4480/model.ckpt-115800
+CHECKPOINT_FILE=/home/undead/reps/ICNetUB/miou_0.4419_no_pp/model.ckpt-34800
 TF_PATH=/home/undead/reps/tensorflow
-NAME=icnet
+NAME=lanes
 export CUDA_VISIBLE_DEVICES=""
 CUR_PATH=${PWD}
 
@@ -19,12 +19,11 @@ ${TF_PATH}/bazel-bin/tensorflow/tools/graph_transforms/transform_graph \
   --in_graph=${CUR_PATH}/${NAME}_frozen.pb \
   --out_graph=${CUR_PATH}/${NAME}_cleaned.pb \
   --inputs="input"\
-  --outputs="indices"\
+  --outputs="indices,label_names,label_colours,input_size,output_name"\
   --transforms='add_default_attributes
-  strip_unused_nodes
-  remove_nodes(op=Identity, op=CheckNumerics)
-  fold_constants(ignore_errors=true)
-  fold_batch_norms
-  fold_old_batch_norms
-  quantize_weights
-  sort_by_execution_order'
+              strip_unused_nodes
+              remove_nodes(op=Identity, op=CheckNumerics)
+              fold_constants(ignore_errors=true)
+              fold_batch_norms
+              fold_old_batch_norms
+              sort_by_execution_order'
