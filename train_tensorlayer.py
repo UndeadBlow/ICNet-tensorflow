@@ -9,7 +9,7 @@ import tensorflow as tf
 import tensorlayer as tl
 import numpy as np
 
-from tensorlayer_nets import deform_unet, u_net, u_net_bn, psp_net
+from tensorlayer_nets import *
 from tools import decode_labels, prepare_label, inv_preprocess
 from image_reader import ImageReader
 
@@ -77,6 +77,112 @@ def load(saver, sess, ckpt_path):
     saver.restore(sess, ckpt_path)
     print("Restored model parameters from {}".format(ckpt_path))
 
+def labels_to_one_hot(ground_truth, num_classes = NUM_CLASSES):
+    """
+    Converts ground truth labels to one-hot, sparse tensors.
+    Used extensively in segmentation losses.
+
+    :param ground_truth: ground truth categorical labels (rank `N`)
+    :param num_classes: A scalar defining the depth of the one hot dimension
+        (see `depth` of `tf.one_hot`)
+    :return: one-hot sparse tf tensor
+        (rank `N+1`; new axis appended at the end)
+    """
+    # read input/output shapes
+    if isinstance(num_classes, tf.Tensor):
+        num_classes_tf = tf.to_int32(num_classes)
+    else:
+        num_classes_tf = tf.constant(num_classes, tf.int32)
+    input_shape = tf.shape(ground_truth)
+    output_shape = tf.concat(
+        [input_shape, tf.reshape(num_classes_tf, (1,))], 0)
+
+    if num_classes == 1:
+        # need a sparse representation?
+        return tf.reshape(ground_truth, output_shape)
+
+    # squeeze the spatial shape
+    ground_truth = tf.reshape(ground_truth, (-1,))
+    # shape of squeezed output
+    dense_shape = tf.stack([tf.shape(ground_truth)[0], num_classes_tf], 0)
+
+    # create a rank-2 sparse tensor
+    ground_truth = tf.to_int64(ground_truth)
+    ids = tf.range(tf.to_int64(dense_shape[0]), dtype=tf.int64)
+    ids = tf.stack([ids, ground_truth], axis=1)
+    one_hot = tf.SparseTensor(
+        indices=ids,
+        values=tf.ones_like(ground_truth, dtype=tf.float32),
+        dense_shape=tf.to_int64(dense_shape))
+
+    # resume the spatial dims
+    one_hot = tf.sparse_reshape(one_hot, output_shape)
+    return one_hot
+
+def generalised_dice_loss(prediction,
+                          ground_truth,
+                          weight_map=None,
+                          type_weight='Uniform',  num_classes = NUM_CLASSES):
+    """
+    Function to calculate the Generalised Dice Loss defined in
+        Sudre, C. et. al. (2017) Generalised Dice overlap as a deep learning
+        loss function for highly unbalanced segmentations. DLMIA 2017
+
+    :param prediction: the logits
+    :param ground_truth: the segmentation ground truth
+    :param weight_map:
+    :param type_weight: type of weighting allowed between labels (choice
+        between Square (square of inverse of volume),
+        Simple (inverse of volume) and Uniform (no weighting))
+    :return: the loss
+    """
+    prediction = tf.cast(prediction, tf.float32)
+    if len(ground_truth.shape) == len(prediction.shape):
+        ground_truth = ground_truth[..., -1]
+    one_hot = labels_to_one_hot(ground_truth, num_classes)
+
+    if weight_map is not None:
+        n_classes = num_classes
+        # weight_map_nclasses = tf.reshape(
+        #     tf.tile(weight_map, [n_classes]), prediction.get_shape())
+        weight_map_nclasses = tf.tile(
+            tf.expand_dims(tf.reshape(weight_map, [-1]), 1), [1, n_classes])
+        ref_vol = tf.sparse_reduce_sum(
+            weight_map_nclasses * one_hot, reduction_axes=[0])
+
+        intersect = tf.sparse_reduce_sum(
+            weight_map_nclasses * one_hot * prediction, reduction_axes=[0])
+        seg_vol = tf.reduce_sum(
+            tf.multiply(weight_map_nclasses, prediction), 0)
+    else:
+        ref_vol = tf.sparse_reduce_sum(one_hot, reduction_axes=[0])
+        intersect = tf.sparse_reduce_sum(one_hot * prediction,
+                                         reduction_axes=[0])
+        seg_vol = tf.reduce_sum(prediction, 0)
+    if type_weight == 'Square':
+        weights = tf.reciprocal(tf.square(ref_vol))
+    elif type_weight == 'Simple':
+        weights = tf.reciprocal(ref_vol)
+    elif type_weight == 'Uniform':
+        weights = tf.ones_like(ref_vol)
+    else:
+        raise ValueError("The variable type_weight \"{}\""
+                         "is not defined.".format(type_weight))
+    new_weights = tf.where(tf.is_inf(weights), tf.zeros_like(weights), weights)
+    weights = tf.where(tf.is_inf(weights), tf.ones_like(weights) *
+                       tf.reduce_max(new_weights), weights)
+    generalised_dice_numerator = \
+        2 * tf.reduce_sum(tf.multiply(weights, intersect))
+    # generalised_dice_denominator = \
+    #     tf.reduce_sum(tf.multiply(weights, seg_vol + ref_vol)) + 1e-6
+    generalised_dice_denominator = tf.reduce_sum(
+        tf.multiply(weights,  tf.maximum(seg_vol + ref_vol, 1)))
+    generalised_dice_score = \
+        generalised_dice_numerator / generalised_dice_denominator
+    generalised_dice_score = tf.where(tf.is_nan(generalised_dice_score), 1.0,
+                                      generalised_dice_score)
+    return 1 - generalised_dice_score
+
 def main():
     # lr_decay = 0.5
     # decay_every = 100
@@ -107,7 +213,7 @@ def main():
     # config.allow_soft_placement = True
     # config.intra_op_parallelism_threads = 1
     sess = tf.Session(config = config)
-    net = psp_net(image_batch, is_train = True, reuse = False, n_out = NUM_CLASSES)
+    net = unext(image_batch, is_train = True, reuse = False, n_out = NUM_CLASSES)
     
     # Predictions: ignoring all predictions with labels greater or equal than n_classes
     raw_output = net.outputs
@@ -115,14 +221,15 @@ def main():
     label_proc = prepare_label(label_batch, tf.stack(raw_output.get_shape()[1:3]), num_classes=args.num_classes, one_hot=False) # [batch_size, h, w]
     raw_gt = tf.reshape(label_proc, [-1,])
     indices = tf.squeeze(tf.where(tf.less_equal(raw_gt, args.num_classes - 1)), 1)
-    gt = tf.cast(tf.gather(raw_gt, indices), tf.int32)
+    gt = tf.cast(tf.gather(raw_gt, indices), dtype = tf.int32)
     prediction = tf.gather(raw_prediction, indices)
                                                                                             
-    # Pixel-wise softmax loss.
-    loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits = prediction, labels = gt)
+    main_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits = prediction, labels = gt)
+
     t_vars = tf.trainable_variables()
     l2_losses = [args.weight_decay * tf.nn.l2_loss(v) for v in t_vars if 'kernel' in v.name]
-    reduced_loss = tf.reduce_mean(loss) + tf.add_n(l2_losses)
+    #reduced_loss = 0.5 * tf.reduce_mean(main_loss) + generalised_dice_loss(prediction, gt) + tf.add_n(l2_losses)
+    reduced_loss = tf.reduce_mean(main_loss) + tf.add_n(l2_losses)
 
     # Processed predictions: for visualisation.
     raw_output_up = tf.image.resize_bilinear(raw_output, tf.shape(image_batch)[1:3,])
@@ -137,15 +244,18 @@ def main():
     total_summary = tf.summary.image('images', 
                                      tf.concat(axis=2, values=[images_summary, labels_summary, preds_summary]), 
                                      max_outputs=args.save_num_images) # Concatenate row-wise.
+    loss_summary = tf.summary.scalar('TotalLoss', reduced_loss)
     summary_writer = tf.summary.FileWriter(args.snapshot_dir,
                                            graph=tf.get_default_graph())
 
     # Using Poly learning rate policy 
     base_lr = tf.constant(args.learning_rate)
     step_ph = tf.placeholder(dtype=tf.float32, shape=())
-    learning_rate = tf.scalar_mul(base_lr, tf.pow((1 - step_ph / args.num_steps), args.power))
+    learning_rate = tf.train.exponential_decay(base_lr, step_ph, args.num_steps, args.power)
 
-    train_op = tf.train.MomentumOptimizer(learning_rate, args.momentum).minimize(reduced_loss, var_list = t_vars)
+    lr_summary = tf.summary.scalar('LearningRate', learning_rate)
+    #train_op = tf.train.MomentumOptimizer(learning_rate, args.momentum).minimize(reduced_loss, var_list = t_vars)
+    train_op = tf.train.AdamOptimizer(learning_rate).minimize(reduced_loss, var_list = t_vars)
     init = tf.global_variables_initializer()
     sess.run(init)
     
@@ -154,6 +264,7 @@ def main():
 
     ckpt = tf.train.get_checkpoint_state(SNAPSHOT_DIR)
     if ckpt and ckpt.model_checkpoint_path:
+        #restore_vars = list([t for t in tf.global_variables() if not 'uconv1' in t.name])
         loader = tf.train.Saver(var_list = tf.global_variables())
         load_step = int(os.path.basename(ckpt.model_checkpoint_path).split('-')[1])
         load(loader, sess, ckpt.model_checkpoint_path)
@@ -165,18 +276,24 @@ def main():
     threads = tf.train.start_queue_runners(coord = coord, sess = sess)
 
     # Iterate over training steps.
+    save_summary_every = 10
     for step in range(args.num_steps):
         start_time = time.time()
         
         feed_dict = {step_ph: step}
-        if step % args.save_pred_every == 0:
-            loss_value, _, summary = sess.run([reduced_loss, train_op, total_summary], feed_dict=feed_dict)
-            summary_writer.add_summary(summary, step)
+        if not step % args.save_pred_every == 0:
+            loss_value, _, l_summary, lr_summ = sess.run([reduced_loss, train_op, loss_summary, lr_summary], feed_dict=feed_dict)
+            duration = time.time() - start_time
+        elif step % args.save_pred_every == 0:
+            loss_value, _, summary, l_summary, lr_summ = sess.run([reduced_loss, train_op, total_summary, loss_summary, lr_summary], feed_dict=feed_dict)
+            duration = time.time() - start_time
             save(saver, sess, args.snapshot_dir, step)
-        else:
-            # (409600,) (1, 640, 640, 25) (409600,) (409600, 25)
-            loss_value, _ = sess.run([reduced_loss, train_op], feed_dict=feed_dict)
-        duration = time.time() - start_time
+            summary_writer.add_summary(summary, step)
+
+        if step % save_summary_every == 0:
+    
+            summary_writer.add_summary(l_summary, step)
+            summary_writer.add_summary(lr_summ, step)
         
         print('step {:d} \t loss = {:.3f}, ({:.3f} sec/step)'.format(step, loss_value, duration))
         

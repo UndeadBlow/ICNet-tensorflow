@@ -16,8 +16,8 @@ import tensorflow as tf
 import numpy as np
 from scipy import misc
 
-from model import ICNet_BN
-from model import PSPNet50, PSPNet101
+from tensorlayer_nets import *
+from model import *
 from tools import decode_labels
 
 import train
@@ -113,14 +113,12 @@ def load_img(img_path):
     
     shape = INPUT_SIZE.split(',')
     img = cv2.resize(img, (int(shape[0]), int(shape[1])))
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    #img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     print('input image shape: ', img.shape)
 
     return img, filename
 
 def preprocess(img):
-    # Convert RGB to BGR
-    # img_r, img_g, img_b = tf.split(axis=2, num_or_size_splits=3, value=img)
     img = tf.cast(img, dtype = tf.float32)
     # Extract mean.
     img -= IMG_MEAN
@@ -153,13 +151,19 @@ def load_from_checkpoint(shape, path, model = 'ICNet_BN'):
     # Create network.
     if model == 'ICNet_BN':
         net = ICNet_BN({'data': img_tf}, is_training = False, num_classes = num_classes)
+        raw_output = net.layers['conv6']
     elif model == 'PSPNet50':
         net = PSPNet50({'data': img_tf}, is_training = False, num_classes = num_classes)
+        raw_output = net.layers['conv6']
     elif model == 'PSPNet101':
         net = PSPNet101({'data': img_tf}, is_training = False, num_classes = num_classes)
+        raw_output = net.layers['conv6']
+    elif model == 'deform_net':
+        net = psp_net(img_tf, is_training = False, num_classes = num_classes)
+        raw_output = net.outputs
 
     # Predictions.
-    raw_output = net.layers['conv6']
+    
     print('raw_output', raw_output)
     output = tf.image.resize_bilinear(raw_output, tf.shape(img_tf)[1:3,])
     output = tf.argmax(output, dimension = 3)
@@ -197,22 +201,25 @@ def load_from_pb(shape, path):
             pred = segment_graph.get_tensor_by_name('indices:0')
 
             config = tf.ConfigProto()
-            config.gpu_options.per_process_gpu_memory_fraction = 0.4
+            config.gpu_options.per_process_gpu_memory_fraction = 0.9
             config.allow_soft_placement = True
             config.log_device_placement = False
 
             sess = tf.Session(graph = segment_graph, config = config)
+            col = segment_graph.get_tensor_by_name('label_colours:0')
+            nam = segment_graph.get_tensor_by_name('label_names:0')
+            label_colors, label_names = sess.run([col, nam])
+            print(label_colors, label_names)
 
-    return sess, pred, x
+    return sess, pred, x, label_colors, label_names
 
 def main():
     args = get_arguments()
     
     if args.img_path[-4] != '.':
-        files = GetAllFilesListRecusive(args.img_path, ['.jpg', '.jpeg', '.png'])
+        files = GetAllFilesListRecusive(args.img_path, ['.jpg', '.jpeg', '.png', '.bmp'])
     else:
         files = [args.img_path]
-
 
     shape = INPUT_SIZE.split(',')
     shape = (int(shape[0]), int(shape[1]), 3)
@@ -220,7 +227,7 @@ def main():
     if args.pb_file == '':
         sess, pred, x = load_from_checkpoint(shape, args.snapshots_dir, args.model)
     else:
-        sess, pred, x = load_from_pb(shape, args.pb_file)
+        sess, pred, x, label_colors, label_names = load_from_pb(shape, args.pb_file)
 
     if args.measure_time:
         calculate_perfomance(sess, x, pred, shape, args.runs, args.batch_size)
@@ -230,7 +237,7 @@ def main():
 
         img, filename = load_img(path)
 
-        orig_img = copy.deepcopy(img)
+        orig_img = cv2.imread(path)
 
         if args.pb_file != '':
             img = np.expand_dims(img, axis = 0)
@@ -241,20 +248,22 @@ def main():
         print('time: ', time.time() - t)
         print('output shape: ', preds.shape)
 
-        msk = decode_labels(preds, num_classes = num_classes)
+        msk = decode_labels(preds, num_classes = len(label_colors), label_colours = label_colors)
         im = msk[0]
-        #print('im', im.shape)
+        im = cv2.resize(im, (orig_img.shape[1], orig_img.shape[0]), interpolation = cv2.INTER_NEAREST)
+        print('im', im.shape)
 
         if not os.path.exists(args.save_dir):
             os.makedirs(args.save_dir)
 
         im = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
-        img = cv2.cvtColor(orig_img, cv2.COLOR_RGB2BGR)
+        #img = cv2.cvtColor(orig_img, cv2.COLOR_RGB2BGR)
+        img = orig_img
 
         if args.weighted:
             indx = (im == [0, 0, 0])
             print(im.shape, img.shape)
-            im = cv2.addWeighted(im, 0.7, img, 0.7, -15)
+            im = cv2.addWeighted(im, 0.8, img, 0.2, 0)
             im[indx] = img[indx]
 
         cv2.imwrite(args.save_dir + filename.replace('.jpg', '.png'), im)

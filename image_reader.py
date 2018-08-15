@@ -2,6 +2,7 @@ import os
 
 import numpy as np
 import tensorflow as tf
+import generate_zooms
 
 from hyperparams import *
 
@@ -61,13 +62,19 @@ def random_crop_and_pad_image_and_labels(image, label, crop_h, crop_w, pad_h, pa
 
     use_crop = tf.random_uniform(shape = [1], minval = 0.0, maxval = 1.0, dtype = tf.float32)[0]
     use_pad = tf.random_uniform(shape = [1], minval = 0.0, maxval = 1.0, dtype = tf.float32)[0]
+    #use_zoom = tf.random_uniform(shape = [1], minval = 0.0, maxval = 1.0, dtype = tf.float32)[0]
+    #focal_len = tf.random_uniform(shape = [1], minval = MIN_FOCAL, maxval = MAX_FOCAL, dtype = tf.float32)[0]
     crop_size = tf.stack([crop_h, crop_w, 4], axis = 0)
-    combined_crop = tf.cond(use_crop <= CROP_PROB, lambda : combined, lambda : tf.random_crop(combined, crop_size))
     
     rows_shift = tf.cast((pad_h - input_size[1]) / 2, dtype = tf.int32)
     cols_shift = tf.cast((pad_w - input_size[0]) / 2, dtype = tf.int32)
     pads = tf.stack([[rows_shift, rows_shift], [cols_shift, cols_shift], [0, 0]])
-    combined_crop = tf.cond(use_pad <= PAD_PROB, lambda : combined_crop, lambda : tf.pad(combined_crop, pads))
+
+    combined_crop = tf.cond(use_crop > CROP_PROB, lambda : combined, lambda : tf.random_crop(combined, crop_size))
+    combined_crop = tf.cond(use_pad > PAD_PROB, lambda : combined_crop, lambda : tf.pad(combined_crop, pads))
+    # print('construct zoom')
+    # combined_crop = tf.cond(use_zoom > PAD_PROB, lambda : combined_crop, lambda : generate_zooms.get_fisheyed(combined_crop, focal_len))
+    # print('zoom construction done')
 
     img_crop = combined_crop[:, :, :last_image_dim]
     label_crop = combined_crop[:, :, last_image_dim:]

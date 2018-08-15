@@ -151,8 +151,33 @@ class Network(object):
                 biases = self.make_var('biases', [c_o])
                 output = tf.nn.bias_add(output, biases)
             if relu:
-                output = tf.nn.relu(output, name=scope.name)
+                output = tf.nn.selu(output, name=scope.name)
             return output
+
+    def conv_next(self,
+                k_h,
+                k_w,
+                c_o,
+                s_h,
+                s_w,
+                name,
+                relu=True,
+                padding=DEFAULT_PADDING,
+                group=1,
+                biased=True):
+        
+        self.validate_padding(padding)
+        input = self.terminals[0]
+        
+        c_i = input.get_shape()[-1]
+        output = self.conv(1, 1, int(c_i) / 2, 1, 1, name = name + '_conv0', relu = False, biased = False, padding = padding)\
+                .conv(1, 1, int(c_i) / 4, 1, 1, name = name + '_conv1', relu = False, biased = False, padding = padding)\
+                .conv(3, 1, int(c_i) / 2, s_h, 1, name = name + '_conv2', relu = True, biased = False, padding = padding)\
+                .conv(1, 3, int(c_i) / 2, 1, s_w, name = name + '_conv3', relu = True, biased = False, padding = padding)\
+                .conv(1, 1, int(c_i) / 2, 1, 1, name = name + '_conv4', relu = True, biased = False, padding = padding)
+        
+
+        return output
 
     @layer
     def atrous_conv(self,
@@ -180,12 +205,12 @@ class Network(object):
                 biases = self.make_var('biases', [c_o])
                 output = tf.nn.bias_add(output, biases)
             if relu:
-                output = tf.nn.relu(output, name=scope.name)
+                output = tf.nn.selu(output, name=scope.name)
             return output
 
     @layer
     def relu(self, input, name):
-        return tf.nn.relu(input, name=name)
+        return tf.nn.selu(input, name=name)
 
     @layer
     def max_pool(self, input, k_h, k_w, s_h, s_w, name, padding=DEFAULT_PADDING):
@@ -240,7 +265,7 @@ class Network(object):
                 feed_in, dim = (input, input_shape[-1].value)
             weights = self.make_var('weights', shape=[dim, num_out])
             biases = self.make_var('biases', [num_out])
-            op = tf.nn.relu_layer if relu else tf.nn.xw_plus_b
+            op = tf.nn.selu_layer if relu else tf.nn.xw_plus_b
             fc = op(feed_in, weights, biases, name=scope.name)
             return fc
 
@@ -277,7 +302,7 @@ class Network(object):
                 variance_epsilon=1e-5,
                 name=name)
             if relu:
-                output = tf.nn.relu(output)
+                output = tf.nn.selu(output)
             return output
         """
         output = tf.layers.batch_normalization(
@@ -289,7 +314,7 @@ class Network(object):
                 )
 
         if relu:
-            output = tf.nn.relu(output)
+            output = tf.nn.selu(output)
 
         return output
 

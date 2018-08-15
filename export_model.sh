@@ -1,6 +1,6 @@
-CHECKPOINT_FILE=/home/undead/reps/ICNetUB/miou_0.4419_no_pp/model.ckpt-34800
+CHECKPOINT_FILE=/home/undead/reps/ICNetUB/snapshots/model.ckpt-12800
 TF_PATH=/home/undead/reps/tensorflow
-NAME=lanes
+NAME=adas
 export CUDA_VISIBLE_DEVICES=""
 CUR_PATH=${PWD}
 
@@ -13,7 +13,7 @@ python3 ${TF_PATH}/tensorflow/python/tools/freeze_graph.py \
 --output_node_names="indices,label_names,label_colours,input_size,output_name" \
 --input_graph=${NAME}_unfrozen.pb \
 --input_checkpoint=${CHECKPOINT_FILE} \
---input_binary=true --output_graph=${NAME}_frozen.pb\
+--input_binary=true --output_graph=${NAME}_frozen.pb
 
 ${TF_PATH}/bazel-bin/tensorflow/tools/graph_transforms/transform_graph \
   --in_graph=${CUR_PATH}/${NAME}_frozen.pb \

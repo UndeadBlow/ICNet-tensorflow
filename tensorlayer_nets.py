@@ -37,6 +37,7 @@ def u_net(x, is_train = False, reuse = False, n_out = 1, pad='SAME'):
 
         conv5 = Conv2d(pool4, 1024, (3, 3), act=None, padding=pad, W_init=w_init, b_init=b_init, name='conv5_1')
         conv5 = Conv2d(conv5, 1024, (3, 3), act=None, padding=pad, W_init=w_init, b_init=b_init, name='conv5_2')
+        conv5 = BatchNormLayer(conv5, act=tf.nn.leaky_relu, is_train=is_train, gamma_init=gamma_init, name='bn4_1')
 
         up4 = DeConv2d(conv5, 512, (3, 3), (nx/8, ny/8), (2, 2), name='deconv4')
         up4 = ConcatLayer([up4, conv4], 3, name='concat4')
@@ -61,47 +62,382 @@ def u_net(x, is_train = False, reuse = False, n_out = 1, pad='SAME'):
         conv1 = Conv2d(up1, 64, (3, 3), act=None, padding=pad, W_init=w_init, b_init=b_init, name='uconv1_1')
         conv1 = Conv2d(conv1, 64, (3, 3), act=None, padding=pad, W_init=w_init, b_init=b_init, name='uconv1_2')
 
-        #b_init = tf.random_uniform_initializer(minval = 0, maxval = 25)
-        conv1 = Conv2d(conv1, n_out, (1, 1), act=tf.nn.leaky_relu, padding=pad, W_init=w_init, b_init=b_init, name='uconv1')
+        b_init = tf.random_uniform_initializer(minval = 0, maxval = n_out)
+        conv1 = Conv2d(conv1, n_out, (1, 1), act=None, padding=pad, W_init=w_init, b_init=b_init, name='uconv1')
+        
     return conv1
 
-def deform_unet(x, is_train = False, reuse = False, n_out = 1):
+def light_deform_u_net(x, is_train = False, reuse = False, n_out = 1, pad='SAME', filter_size_scale = 1.0):
     _, nx, ny, nz = x.get_shape().as_list()
     with tf.variable_scope("u_net", reuse=reuse):
-        tl.layers.set_name_reuse(reuse)
-        inputs = InputLayer(x, name='inputs')
-        conv1 = Conv2d(inputs, 64, (3, 3), act=tf.nn.leaky_relu, name='conv1_1')
-        conv1 = Conv2d(conv1, 64, (3, 3), act=tf.nn.leaky_relu, name='conv1_2')
-        pool1 = MaxPool2d(conv1, (2, 2), name='pool1')
-        conv2 = Conv2d(pool1, 128, (3, 3), act=tf.nn.leaky_relu, name='conv2_1')
-        conv2 = Conv2d(conv2, 128, (3, 3), act=tf.nn.leaky_relu, name='conv2_2')
-        pool2 = MaxPool2d(conv2, (2, 2), name='pool2')
-        conv3 = Conv2d(pool2, 256, (3, 3), act=tf.nn.leaky_relu, name='conv3_1')
-        conv3 = Conv2d(conv3, 256, (3, 3), act=tf.nn.leaky_relu, name='conv3_2')
-        pool3 = MaxPool2d(conv3, (2, 2), name='pool3')
-        conv4 = Conv2d(pool3, 512, (3, 3), act=tf.nn.leaky_relu, name='conv4_1')
-        conv4 = Conv2d(conv4, 512, (3, 3), act=tf.nn.leaky_relu, name='conv4_2')
-        pool4 = MaxPool2d(conv4, (2, 2), name='pool4')
-        conv5 = Conv2d(pool4, 1024, (3, 3), act=tf.nn.leaky_relu, name='conv5_1')
-        conv5 = Conv2d(conv5, 1024, (3, 3), act=tf.nn.leaky_relu, name='conv5_2')
+        w_init = tf.truncated_normal_initializer(stddev = 0.03)
+        b_init = tf.constant_initializer(value = 0.01)
 
-        up4 = DeConv2d(conv5, 512, (3, 3), (nx/8, ny/8), (2, 2), name='deconv4')
+        tl.layers.set_name_reuse(reuse)
+        inputs = InputLayer(x, name = 'inputs')
+
+        conv1 = Conv2d(inputs, 32 * filter_size_scale, (3, 3), act=tf.nn.leaky_relu, name='conv1_1', W_init=w_init)
+        conv1 = Conv2d(conv1, 32 * filter_size_scale, (3, 3), act=tf.nn.leaky_relu, name='conv1_2', W_init=w_init)
+        pool1 = MaxPool2d(conv1, (2, 2), name='pool1')
+        conv2 = Conv2d(pool1, 32 * filter_size_scale, (3, 3), act=tf.nn.leaky_relu, name='conv2_1', W_init=w_init)
+        conv2 = Conv2d(conv2, 32 * filter_size_scale, (3, 3), act=tf.nn.leaky_relu, name='conv2_2', W_init=w_init)
+        conv2 = ElementwiseLayer([pool1, conv2], tf.add, name = 'add1')
+        pool2 = MaxPool2d(conv2, (2, 2), name='pool2')
+        conv3 = Conv2d(pool2, 32 * filter_size_scale, (3, 3), act=tf.nn.leaky_relu, name='conv3_1', W_init=w_init)
+        conv3 = Conv2d(conv3, 32 * filter_size_scale, (3, 3), act=tf.nn.leaky_relu, name='conv3_2', W_init=w_init)
+        conv3 = ElementwiseLayer([pool2, conv3], tf.add, name = 'add2')
+        pool3 = MaxPool2d(conv3, (2, 2), name='pool3')
+        conv4 = Conv2d(pool3, 32 * filter_size_scale, (3, 3), act=tf.nn.leaky_relu, name='conv4_1', W_init=w_init)
+        conv4 = Conv2d(conv4, 32 * filter_size_scale, (3, 3), act=tf.nn.leaky_relu, name='conv4_2', W_init=w_init)
+        conv4 = ElementwiseLayer([pool3, conv4], tf.add, name = 'add3')
+        pool4 = MaxPool2d(conv4, (2, 2), name='pool4')
+        conv5 = Conv2d(pool4, 64 * filter_size_scale, (3, 3), act=tf.nn.leaky_relu, name='uconv5_1', W_init=w_init)
+        #conv5 = Conv2d(conv5, 32 * filter_size_scale, (3, 3), act=tf.nn.leaky_relu, name='uconv5_2', W_init=w_init)
+        #conv5 = ElementwiseLayer([pool4, conv5], tf.add, name = 'add4')
+        offset1 = Conv2d(conv5, 18, (3, 3), (1, 1), act=tf.nn.leaky_relu, padding='SAME', name='offset2')
+        conv5 = DeformableConv2d(conv5, offset1, int(128 * filter_size_scale), (3, 3), act=tf.nn.leaky_relu, W_init=w_init, b_init=None, name = 'deform_conv2')
+
+        up4 = DeConv2d(conv5, int(32 * filter_size_scale), (3, 3), (nx/8, ny/8), (2, 2), name='deconv4', W_init=w_init)
         up4 = ConcatLayer([up4, conv4], 3, name='concat4')
-        conv4 = Conv2d(up4, 512, (3, 3), act=tf.nn.leaky_relu, name='uconv4_1')
-        conv4 = Conv2d(conv4, 512, (3, 3), act=tf.nn.leaky_relu, name='uconv4_2')
-        up3 = DeConv2d(conv4, 256, (3, 3), (nx/4, ny/4), (2, 2), name='deconv3')
+        conv4 = Conv2d(up4, 64 * filter_size_scale, (3, 3), act=tf.nn.leaky_relu, name='uconv4_1', W_init=w_init)
+        conv4 = Conv2d(conv4, 64 * filter_size_scale, (3, 3), act=tf.nn.leaky_relu, name='uconv4_2', W_init=w_init)
+        conv4 = ElementwiseLayer([up4, conv4], tf.add, name = 'add5')
+        up3 = DeConv2d(conv4, int(32 * filter_size_scale), (3, 3), (nx/4, ny/4), (2, 2), name='deconv3', W_init=w_init)
         up3 = ConcatLayer([up3, conv3], 3, name='concat3')
-        conv3 = Conv2d(up3, 256, (3, 3), act=tf.nn.leaky_relu, name='uconv3_1')
-        conv3 = Conv2d(conv3, 256, (3, 3), act=tf.nn.leaky_relu, name='uconv3_2')
-        up2 = DeConv2d(conv3, 128, (3, 3), (nx/2, ny/2), (2, 2), name='deconv2')
+        conv3 = Conv2d(up3, 64 * filter_size_scale, (3, 3), act=tf.nn.leaky_relu, name='uconv3_1', W_init=w_init)
+        conv3 = Conv2d(conv3, 64 * filter_size_scale, (3, 3), act=tf.nn.leaky_relu, name='uconv3_2', W_init=w_init)
+        conv3 = ElementwiseLayer([up3, conv3], tf.add, name = 'add6')
+        up2 = DeConv2d(conv3, int(32 * filter_size_scale), (3, 3), (nx/2, ny/2), (2, 2), name='deconv2', W_init=w_init)
         up2 = ConcatLayer([up2, conv2], 3, name='concat2')
-        conv2 = Conv2d(up2, 128, (3, 3), act=tf.nn.leaky_relu,  name='uconv2_1')
-        conv2 = Conv2d(conv2, 128, (3, 3), act=tf.nn.leaky_relu, name='uconv2_2')
-        up1 = DeConv2d(conv2, 64, (3, 3), (nx/1, ny/1), (2, 2), name='deconv1')
+        conv2 = Conv2d(up2, 64 * filter_size_scale, (3, 3), act=tf.nn.leaky_relu,  name='uconv2_1', W_init=w_init)
+        conv2 = Conv2d(conv2, 64 * filter_size_scale, (3, 3), act=tf.nn.leaky_relu, name='uconv2_2', W_init=w_init)
+        conv2 = ElementwiseLayer([up2, conv2], tf.add, name = 'add7')
+        up1 = DeConv2d(conv2, int(32 * filter_size_scale), (3, 3), (nx/1, ny/1), (2, 2), name='deconv1', W_init=w_init)
         up1 = ConcatLayer([up1, conv1] , 3, name='concat1')
-        conv1 = Conv2d(up1, 64, (3, 3), act=tf.nn.leaky_relu, name='uconv1_1')
-        conv1 = Conv2d(conv1, 64, (3, 3), act=tf.nn.leaky_relu, name='uconv1_2')
-        conv1 = Conv2d(conv1, n_out, (1, 1), act=tf.nn.sigmoid, name='uconv1')
+        conv1 = Conv2d(up1, 64 * filter_size_scale, (3, 3), act=tf.nn.leaky_relu, name='uconv1_1', W_init=w_init)
+        conv1 = Conv2d(conv1, 64 * filter_size_scale, (3, 3), act=tf.nn.leaky_relu, name='uconv1_2', W_init=w_init)
+        conv1 = ElementwiseLayer([up1, conv1], tf.add, name = 'add8')
+
+        conv1 = Conv2d(conv1, n_out, (1, 1), act=None, padding='SAME', W_init=w_init, b_init=b_init, name='uconv1')
+        
+    return conv1
+
+def deform_u_net(x, is_train = False, reuse = False, n_out = 1, pad='SAME'):
+    _, nx, ny, nz = x.get_shape().as_list()
+    with tf.variable_scope("u_net", reuse=reuse):
+        w_init = tf.truncated_normal_initializer(stddev=0.01)
+        b_init = tf.constant_initializer(value=0.0)
+
+        tl.layers.set_name_reuse(reuse)
+        inputs = InputLayer(x, name = 'inputs')
+
+        conv1 = Conv2d(inputs, 64, (3, 3), act=tf.nn.leaky_relu, name='conv1_1', W_init=w_init)
+        conv1 = Conv2d(conv1, 64, (3, 3), act=tf.nn.leaky_relu, name='conv1_2', W_init=w_init)
+        pool1 = MaxPool2d(conv1, (2, 2), name='pool1')
+        conv2 = Conv2d(pool1, 128, (3, 3), act=tf.nn.leaky_relu, name='conv2_1', W_init=w_init)
+        conv2 = Conv2d(conv2, 128, (3, 3), act=tf.nn.leaky_relu, name='conv2_2', W_init=w_init)
+        pool2 = MaxPool2d(conv2, (2, 2), name='pool2')
+        conv3 = Conv2d(pool2, 256, (3, 3), act=tf.nn.leaky_relu, name='conv3_1', W_init=w_init)
+        conv3 = Conv2d(conv3, 256, (3, 3), act=tf.nn.leaky_relu, name='conv3_2', W_init=w_init)
+        pool3 = MaxPool2d(conv3, (2, 2), name='pool3')
+        conv4 = Conv2d(pool3, 512, (3, 3), act=tf.nn.leaky_relu, name='conv4_1', W_init=w_init)
+        conv4 = Conv2d(conv4, 512, (3, 3), act=tf.nn.leaky_relu, name='conv4_2', W_init=w_init)
+        pool4 = MaxPool2d(conv4, (2, 2), name='pool4')
+        offset1 = Conv2d(pool4, 18, (3, 3), (1, 1), act=None, padding='SAME', name='offset1')
+        conv5 = DeformableConv2d(pool4, offset1, 1024, (3, 3), act=tf.nn.leaky_relu, W_init=w_init, b_init=None, name = 'deform_conv1')
+        offset1 = Conv2d(conv5, 18, (3, 3), (1, 1), act=None, padding='SAME', name='offset2')
+        conv5 = DeformableConv2d(conv5, offset1, 1024, (3, 3), act=tf.nn.leaky_relu, W_init=w_init, b_init=None, name = 'deform_conv2')
+
+        up4 = DeConv2d(conv5, 512, (3, 3), (nx/8, ny/8), (2, 2), name='deconv4', W_init=w_init)
+        up4 = ConcatLayer([up4, conv4], 3, name='concat4')
+        conv4 = Conv2d(up4, 512, (3, 3), act=tf.nn.leaky_relu, name='uconv4_1', W_init=w_init)
+        conv4 = Conv2d(conv4, 512, (3, 3), act=tf.nn.leaky_relu, name='uconv4_2', W_init=w_init)
+        up3 = DeConv2d(conv4, 256, (3, 3), (nx/4, ny/4), (2, 2), name='deconv3', W_init=w_init)
+        up3 = ConcatLayer([up3, conv3], 3, name='concat3')
+        conv3 = Conv2d(up3, 256, (3, 3), act=tf.nn.leaky_relu, name='uconv3_1', W_init=w_init)
+        conv3 = Conv2d(conv3, 256, (3, 3), act=tf.nn.leaky_relu, name='uconv3_2', W_init=w_init)
+        up2 = DeConv2d(conv3, 128, (3, 3), (nx/2, ny/2), (2, 2), name='deconv2', W_init=w_init)
+        up2 = ConcatLayer([up2, conv2], 3, name='concat2')
+        conv2 = Conv2d(up2, 128, (3, 3), act=tf.nn.leaky_relu,  name='uconv2_1', W_init=w_init)
+        conv2 = Conv2d(conv2, 128, (3, 3), act=tf.nn.leaky_relu, name='uconv2_2', W_init=w_init)
+        up1 = DeConv2d(conv2, 64, (3, 3), (nx/1, ny/1), (2, 2), name='deconv1', W_init=w_init)
+        up1 = ConcatLayer([up1, conv1] , 3, name='concat1')
+        conv1 = Conv2d(up1, 64, (3, 3), act=tf.nn.leaky_relu, name='uconv1_1', W_init=w_init)
+        conv1 = Conv2d(conv1, 64, (3, 3), act=tf.nn.leaky_relu, name='uconv1_2', W_init=w_init)
+
+        conv1 = Conv2d(conv1, n_out, (1, 1), act=None, padding='SAME', W_init=w_init, b_init=b_init, name='uconv1')
+        
+    return conv1
+
+# lambda x : tf.nn.leaky_relu(x, alpha = 5.5)
+# check what is faster, 3x1 - 1x3 or 3x3?
+
+# 0.5 3x1 - 1x3 plain:   3 102 145, av. time on 1000 runs: 46 ms
+# 0.75 3x1 - 1x3 plain:  6 971 417, av. time on 1000 runs: 77 ms
+# 0.75 v2 3x1 - 1x3 plain:  5 797 433, av. time on 1000 runs: 72 ms
+# 0.5 partly 3x3 plain: 19 610 817, av. time on 1000 runs: 96 ms ????
+# 1.0 3x1 - 1x3 plain:  12 386 161, av. time on 1000 runs: 101 ms
+# 0.5 3x3 plain:         3 108 865, av. time on 1000 runs: 47 ms
+# 0.5 3x1 - 1x3 deform:  4 870 209, av. time on 1000 runs: 296 ms
+
+# 0.5 v3 3x1 - 1x3 deform:  2 610 105, 720: 119 ms, 560: 75 ms
+
+def unextv3(x, is_train = False, reuse = False, n_out = 1, pad='SAME', activation = tf.nn.leaky_relu, depth = 0.5):
+
+    def ResNextBlock(input, n_inputs, name, add = True, reduced = False):
+
+        # The idea from mobilenet that bottleneck layer should be linear
+        conv0 = Conv2d(input, n_inputs / 2, (1, 1), act = None, name = name + 'conv1_1', W_init = w_init, padding = 'SAME')
+        conv1 = Conv2d(conv0, n_inputs / 4, (1, 1), act = None, name = name + 'conv1_2', W_init = w_init, padding = 'SAME')
+
+        conv1 = Conv2d(conv1, n_inputs / 2, (3, 1), act = activation, name = name + 'conv1_3', W_init = w_init, padding = 'SAME')
+        conv1 = Conv2d(conv1, n_inputs / 2, (1, 3), act = activation, name = name + 'conv1_4', W_init = w_init, padding = 'SAME')
+
+        if reduced:
+            conv1 = ElementwiseLayer([conv0, conv1], tf.add, name = name + 'add1_1')
+            return conv1
+        else:
+            conv1 = Conv2d(conv1, n_inputs, (1, 1), act = activation, name = name + 'conv1_5', W_init = w_init, padding = 'SAME')
+            if add:
+                conv1 = ElementwiseLayer([conv1, input], tf.add, name = name + 'add1_1')
+            else:
+                conv1 = ConcatLayer([conv1, input], name = name + 'concat1_1')
+
+        return conv1
+
+    _, nx, ny, nz = x.get_shape().as_list()
+    with tf.variable_scope("unext", reuse = reuse):
+
+        w_init = tf.contrib.layers.xavier_initializer_conv2d()
+        b_init = tf.constant_initializer(value = 0.0)
+
+        tl.layers.set_name_reuse(reuse)
+        inputs = InputLayer(x, name = 'inputs')
+
+        conv1 = Conv2d(inputs, 64 * depth, (3, 1), act = activation, name = 'conv0_1', W_init = w_init, padding = 'SAME')
+        conv1 = Conv2d(conv1, 64 * depth, (1, 3), act = activation, name = 'conv0_2', W_init = w_init, padding = 'SAME')
+        conv1 = Conv2d(conv1, 64 * depth, (3, 1), act = activation, name = 'conv0_3', W_init = w_init, padding = 'SAME')
+        conv1 = Conv2d(conv1, 64 * depth, (1, 3), act = activation, name = 'conv0_4', W_init = w_init, padding = 'SAME')
+        pool1 = MaxPool2d(conv1, (2, 2), name='pool1')
+        conv2 = ResNextBlock(pool1, 64 * depth, 'block3', add = False)
+        conv2 = ResNextBlock(conv2, 128 * depth, 'block4')
+        pool2 = MaxPool2d(conv2, (2, 2), name='pool2')
+        conv3 = ResNextBlock(pool2, 128 * depth, 'block5', add = False)
+        conv3 = ResNextBlock(conv3, 256 * depth, 'block6')
+        pool3 = MaxPool2d(conv3, (2, 2), name='pool3')
+        conv4 = ResNextBlock(pool3, 256 * depth, 'block7', add = False)
+        conv4 = ResNextBlock(conv4, 512 * depth, 'block8')
+        pool4 = MaxPool2d(conv4, (2, 2), name='pool4')
+        conv5 = ResNextBlock(pool4, 512 * depth, 'block9', add = False)
+        conv5 = ResNextBlock(conv5, 1024 * depth, 'block10')
+        print(conv5.outputs.shape)
+
+        up4 = DeConv2d(conv5, int(512 * depth), (3, 1),(nx / 8, ny / 8), (2, 1), act = None, name='deconv4_1', W_init=w_init)
+        up4 = DeConv2d(up4, int(512 * depth), (1, 3), (nx / 8, ny / 8), (1, 2), act = None, name='deconv4_2', W_init=w_init)
+        up4 = ConcatLayer([up4, conv4], 3, name='concat4')
+        conv4 = ResNextBlock(up4, 1024 * depth, 'block11', reduced = True)
+        conv4 = ResNextBlock(conv4, 512 * depth, 'block12')
+        up3 = DeConv2d(conv4, int(256 * depth),(3, 1), (nx / 4, ny / 4), (2, 1), act = None, name='deconv3_1', W_init=w_init)
+        up3 = DeConv2d(up3, int(256 * depth), (1, 3), (nx / 4, ny / 4), (1, 2),  act = None, name='deconv3_2', W_init=w_init)
+        up3 = ConcatLayer([up3, conv3], 3, name='concat3')
+        conv3 = ResNextBlock(up3, 512 * depth, 'block13', reduced = True)
+        conv3 = ResNextBlock(conv3, 256 * depth, 'block14')
+        up2 = DeConv2d(conv3, int(128 * depth), (3, 1), (nx / 2, ny / 2), (2, 1), act = None, name='deconv2_1', W_init=w_init)
+        up2 = DeConv2d(up2, int(128 * depth), (1, 3), (nx / 2, ny / 2), (1, 2), act = None, name='deconv2_2', W_init=w_init)
+        up2 = ConcatLayer([up2, conv2], 3, name='concat2')
+        conv2 = ResNextBlock(up2, 256 * depth, 'block15', reduced = True)
+        conv2 = ResNextBlock(conv2, 128 * depth, 'block16')
+        up1 = DeConv2d(conv2, int(64 * depth), (3, 1), (nx / 1, ny / 1), (2, 1), act = None, name='deconv1_1', W_init=w_init)
+        up1 = DeConv2d(up1, int(64 * depth), (1, 3), (nx / 1, ny / 1), (1, 2), act = None, name='deconv1_2', W_init=w_init)
+        up1 = ConcatLayer([up1, conv1], 3, name='concat1')
+        conv1 = Conv2d(up1, 128 * depth, (3, 1), act = activation, name = 'conv17_1', W_init = w_init, padding = 'SAME')
+        conv1 = Conv2d(conv1, 128 * depth, (1, 3), act = activation, name = 'conv17_2', W_init = w_init, padding = 'SAME')
+        conv1 = Conv2d(conv1, 64 * depth, (3, 1), act = activation, name = 'conv17_3', W_init = w_init, padding = 'SAME')
+        conv1 = Conv2d(conv1, 64 * depth, (1, 3), act = activation, name = 'conv17_4', W_init = w_init, padding = 'SAME')
+
+        conv1 = Conv2d(conv1, n_out, (1, 1), act=None, padding='SAME', W_init=w_init, b_init=b_init, name='uconv1')
+
+        #print(conv1.outputs.shape)
+        print('Params :', conv1.count_params())
+        # quit()
+
+    return conv1
+    
+def lunextv3(x, is_train = False, reuse = False, n_out = 1, pad='SAME', activation = tf.nn.selu, depth = 0.5):
+    
+    def ResNextBlock(input, n_inputs, name, add = True, reduced = False):
+
+        # The idea from mobilenet that bottleneck layer should be linear
+        conv0 = Conv2d(input, n_inputs / 2, (1, 1), act = None, name = name + 'conv1_1', W_init = w_init, padding = 'SAME')
+        conv1 = Conv2d(conv0, n_inputs / 4, (1, 1), act = None, name = name + 'conv1_2', W_init = w_init, padding = 'SAME')
+
+        conv1 = Conv2d(conv1, n_inputs / 2, (3, 1), act = activation, name = name + 'conv1_3', W_init = w_init, padding = 'SAME')
+        conv1 = Conv2d(conv1, n_inputs / 2, (1, 3), act = activation, name = name + 'conv1_4', W_init = w_init, padding = 'SAME')
+
+        if reduced:
+            conv1 = ElementwiseLayer([conv0, conv1], tf.add, name = name + 'add1_1')
+            return conv1
+        else:
+            conv1 = Conv2d(conv1, n_inputs, (1, 1), act = activation, name = name + 'conv1_5', W_init = w_init, padding = 'SAME')
+            if add:
+                conv1 = ElementwiseLayer([conv1, input], tf.add, name = name + 'add1_1')
+            else:
+                conv1 = ConcatLayer([conv1, input], name = name + 'concat1_1')
+
+        return conv1
+
+    _, nx, ny, nz = x.get_shape().as_list()
+    with tf.variable_scope("unext", reuse = reuse):
+
+        w_init = tf.contrib.layers.xavier_initializer_conv2d()
+        b_init = tf.constant_initializer(value = 0.0)
+
+        tl.layers.set_name_reuse(reuse)
+        inputs = InputLayer(x, name = 'inputs')
+
+        conv1 = Conv2d(inputs, 64 * depth, (3, 3), (1, 1), act = activation, name = 'conv0_1', W_init = w_init, padding = 'SAME')
+        conv1 = Conv2d(conv1, 64 * depth, (3, 3), (1, 1), act = activation, name = 'conv0_1', W_init = w_init, padding = 'SAME')
+        pool1 = MaxPool2d(conv1, (2, 2), name='pool1')
+        conv2 = ResNextBlock(pool1, 64 * depth, 'block3', add = False)
+        conv2 = ResNextBlock(conv2, 128 * depth, 'block4')
+        pool2 = MaxPool2d(conv2, (2, 2), name='pool2')
+        conv3 = ResNextBlock(pool2, 128 * depth, 'block5', add = False)
+        conv3 = ResNextBlock(conv3, 256 * depth, 'block6')
+        pool3 = MaxPool2d(conv3, (2, 2), name='pool3')
+        conv4 = ResNextBlock(pool3, 256 * depth, 'block7', add = False)
+        conv4 = ResNextBlock(conv4, 512 * depth, 'block8')
+        pool4 = MaxPool2d(conv4, (2, 2), name='pool4')
+        conv5 = ResNextBlock(pool4, 512 * depth, 'block9')
+        conv5 = ResNextBlock(conv5, 512 * depth, 'block10')
+        print(conv5.outputs.shape)
+
+
+        up4 = DeConv2d(conv5, int(512 * depth), (3, 3),(nx / 8, ny / 8), (2, 2), act = None, name='deconv4_1', W_init=w_init)
+        #up4 = DeConv2d(up4, int(512 * depth), (1, 3), (nx / 8, ny / 8), (1, 2), act = None, name='deconv4_2', W_init=w_init)
+        up4 = ConcatLayer([up4, conv4], 3, name='concat4')
+        conv4 = ResNextBlock(up4, 1024 * depth, 'block11', reduced = True)
+        conv4 = ResNextBlock(conv4, 512 * depth, 'block12')
+        up3 = DeConv2d(conv4, int(256 * depth),(3, 3), (nx / 4, ny / 4), (2, 2), act = None, name='deconv3_1', W_init=w_init)
+        #up3 = DeConv2d(up3, int(256 * depth), (1, 3), (nx / 4, ny / 4), (1, 2),  act = None, name='deconv3_2', W_init=w_init)
+        up3 = ConcatLayer([up3, conv3], 3, name='concat3')
+        conv3 = ResNextBlock(up3, 512 * depth, 'block13', reduced = True)
+        conv3 = ResNextBlock(conv3, 256 * depth, 'block14')
+        up2 = DeConv2d(conv3, int(128 * depth), (3, 3), (nx / 2, ny / 2), (2, 2), act = None, name='deconv2_1', W_init=w_init)
+        #up2 = DeConv2d(up2, int(128 * depth), (1, 3), (nx / 2, ny / 2), (1, 2), act = None, name='deconv2_2', W_init=w_init)
+        up2 = ConcatLayer([up2, conv2], 3, name='concat2')
+        conv2 = ResNextBlock(up2, 256 * depth, 'block15', reduced = True)
+        conv2 = ResNextBlock(conv2, 128 * depth, 'block16')
+        up1 = DeConv2d(conv2, int(64 * depth), (3, 3), (nx / 1, ny / 1), (2, 2), act = None, name='deconv1_1', W_init=w_init)
+        #up1 = DeConv2d(up1, int(64 * depth), (1, 3), (nx / 1, ny / 1), (1, 2), act = None, name='deconv1_2', W_init=w_init)
+        up1 = ConcatLayer([up1, conv1], 3, name='concat1')
+        conv1 = Conv2d(up1, 64 * depth, (3, 1), act = activation, name = 'conv17_1', W_init = w_init, padding = 'SAME')
+        conv1 = Conv2d(conv1, 64 * depth, (1, 3), act = activation, name = 'conv17_2', W_init = w_init, padding = 'SAME')
+        conv1 = Conv2d(conv1, 64 * depth, (3, 1), act = activation, name = 'conv17_3', W_init = w_init, padding = 'SAME')
+        conv1 = Conv2d(conv1, 64 * depth, (1, 3), act = activation, name = 'conv17_4', W_init = w_init, padding = 'SAME')
+
+        conv1 = Conv2d(conv1, n_out, (1, 1), act=None, padding='SAME', W_init=w_init, b_init=b_init, name='uconv1')
+
+        print('Params :', conv1.count_params())
+
+        return conv1
+
+def unext(x, is_train = False, reuse = False, n_out = 1, pad='SAME', activation = tf.nn.relu, depth = 0.5):
+    # leaky_rely speed: 57.4 ms
+    # relu speed:       48.9 ms
+    # selu speed:       50.0 ms
+    def ResNextBlock(input, n_inputs, name, add = True, reduced = False):
+
+        # The idea from mobilenet that bottleneck layer should be linear
+        conv0 = Conv2d(input, n_inputs / 2, (1, 1), act = None, name = name + 'conv1_1', W_init = w_init, padding = 'SAME')
+        conv1 = Conv2d(conv0, n_inputs / 4, (1, 1), act = None, name = name + 'conv1_2', W_init = w_init, padding = 'SAME')
+
+        conv1 = Conv2d(conv1, n_inputs / 2, (3, 1), act = activation, name = name + 'conv1_3', W_init = w_init, padding = 'SAME')
+        conv1 = Conv2d(conv1, n_inputs / 2, (1, 3), act = activation, name = name + 'conv1_4', W_init = w_init, padding = 'SAME')
+
+        if reduced:
+            conv1 = ElementwiseLayer([conv0, conv1], tf.add, name = name + 'add1_1')
+            return conv1
+        else:
+            conv1 = Conv2d(conv1, n_inputs, (1, 1), act = activation, name = name + 'conv1_5', W_init = w_init, padding = 'SAME')
+            if add:
+                conv1 = ElementwiseLayer([conv1, input], tf.add, name = name + 'add1_1')
+            else:
+                conv1 = ConcatLayer([conv1, input], name = name + 'concat1_1')
+
+        return conv1
+
+    _, nx, ny, nz = x.get_shape().as_list()
+    with tf.variable_scope("unext", reuse = reuse):
+
+        w_init = tf.contrib.layers.xavier_initializer_conv2d()
+        b_init = tf.constant_initializer(value = 0.0)
+
+        tl.layers.set_name_reuse(reuse)
+        inputs = InputLayer(x, name = 'inputs')
+
+        # speed with 1x3 3x1 first layer 67.4 ms
+        # speed with 3x3 first layer 65.8 ms
+        # cudnn speed up?
+        # check the same on cpu to exclude cudnn effect:
+        # 3x1 1x3: 853 ms (1964217)
+        # 3x3:     859 ms <- but here are less parameters (1961689)
+
+        # speed with 3x1 1x3 deconvs - 67.4 (1964217)
+        # with 3x3 - 67.0 (2353881)
+        # same on cpu:
+        # 3x1 1x3: 853 ms
+        # 3x3:     916 ms 
+        conv1 = Conv2d(inputs, 64 * depth, (3, 3), (1, 1), act = activation, name = 'conv0_1', W_init = w_init, padding = 'SAME')
+        # +1 layers here 
+        # without 1955417 params and 54 ms
+        # with 1955417 params and 57.4 ms
+        conv1 = Conv2d(conv1, 64 * depth, (3, 3), (1, 1), act = activation, name = 'conv0_1', W_init = w_init, padding = 'SAME')
+        pool1 = MaxPool2d(conv1, (2, 2), name='pool1')
+        conv2 = ResNextBlock(pool1, 64 * depth, 'block3', add = False)
+        conv2 = ResNextBlock(conv2, 128 * depth, 'block4')
+        pool2 = MaxPool2d(conv2, (2, 2), name='pool2')
+        conv3 = ResNextBlock(pool2, 128 * depth, 'block5', add = False)
+        conv3 = ResNextBlock(conv3, 256 * depth, 'block6')
+        pool3 = MaxPool2d(conv3, (2, 2), name='pool3')
+        conv4 = ResNextBlock(pool3, 256 * depth, 'block7', add = False)
+        conv4 = ResNextBlock(conv4, 512 * depth, 'block8')
+        pool4 = MaxPool2d(conv4, (2, 2), name='pool4')
+        conv5 = ResNextBlock(pool4, 512 * depth, 'block9', add = False)
+        conv5 = ResNextBlock(conv5, 1024 * depth, 'block10')
+        print(conv5.outputs.shape)
+
+
+        up4 = DeConv2d(conv5, int(512 * depth), (3, 1),(nx / 8, ny / 8), (2, 1), act = None, name='deconv4_1', W_init=w_init)
+        up4 = DeConv2d(up4, int(512 * depth), (1, 3), (nx / 8, ny / 8), (1, 2), act = None, name='deconv4_2', W_init=w_init)
+        up4 = ConcatLayer([up4, conv4], 3, name='concat4')
+        conv4 = ResNextBlock(up4, 1024 * depth, 'block11', reduced = True)
+        conv4 = ResNextBlock(conv4, 512 * depth, 'block12')
+        up3 = DeConv2d(conv4, int(256 * depth),(3, 1), (nx / 4, ny / 4), (2, 1), act = None, name='deconv3_1', W_init=w_init)
+        up3 = DeConv2d(up3, int(256 * depth), (1, 3), (nx / 4, ny / 4), (1, 2),  act = None, name='deconv3_2', W_init=w_init)
+        up3 = ConcatLayer([up3, conv3], 3, name='concat3')
+        conv3 = ResNextBlock(up3, 512 * depth, 'block13', reduced = True)
+        conv3 = ResNextBlock(conv3, 256 * depth, 'block14')
+        up2 = DeConv2d(conv3, int(128 * depth), (3, 1), (nx / 2, ny / 2), (2, 1), act = None, name='deconv2_1', W_init=w_init)
+        up2 = DeConv2d(up2, int(128 * depth), (1, 3), (nx / 2, ny / 2), (1, 2), act = None, name='deconv2_2', W_init=w_init)
+        up2 = ConcatLayer([up2, conv2], 3, name='concat2')
+        conv2 = ResNextBlock(up2, 256 * depth, 'block15', reduced = True)
+        conv2 = ResNextBlock(conv2, 128 * depth, 'block16')
+        up1 = DeConv2d(conv2, int(64 * depth), (3, 1), (nx / 1, ny / 1), (2, 1), act = None, name='deconv1_1', W_init=w_init)
+        up1 = DeConv2d(up1, int(64 * depth), (1, 3), (nx / 1, ny / 1), (1, 2), act = None, name='deconv1_2', W_init=w_init)
+        up1 = ConcatLayer([up1, conv1], 3, name='concat1')
+        # 3x1 1x3 here last layers -> 1943193 params
+        # 3x3 -> 1955417 params
+        conv1 = Conv2d(up1, 64 * depth, (3, 3), act = activation, name = 'conv17_1', W_init = w_init, padding = 'SAME')
+        #conv1 = Conv2d(conv1, 64 * depth, (1, 3), act = activation, name = 'conv17_2', W_init = w_init, padding = 'SAME')
+        conv1 = Conv2d(conv1, 64 * depth, (3, 3), act = activation, name = 'conv17_3', W_init = w_init, padding = 'SAME')
+        #conv1 = Conv2d(conv1, 64 * depth, (1, 3), act = activation, name = 'conv17_4', W_init = w_init, padding = 'SAME')
+
+        conv1 = Conv2d(conv1, n_out, (1, 1), act=None, padding='SAME', W_init=w_init, b_init=b_init, name='uconv1')
+
+        #print(conv1.outputs.shape)
+        print('Params :', conv1.count_params())
+        # quit()
+
     return conv1
 
 def u_net_bn(x, is_train=False, reuse=False, batch_size=None, pad='SAME', n_out=1):
@@ -195,7 +531,10 @@ def u_net_bn(x, is_train=False, reuse=False, batch_size=None, pad='SAME', n_out=
 
     return out
 
-def psp_net(x, is_train = False, reuse = False, n_out = 1, pad='VALID'):
+def psp_net(x, is_training = False, reuse = False, num_classes = 1, pad='VALID'):
+    
+    is_train = is_training
+    n_out = num_classes
     
     w_init = tf.truncated_normal_initializer(stddev=0.03)
     b_init = tf.constant_initializer(value=0.0)
@@ -205,44 +544,41 @@ def psp_net(x, is_train = False, reuse = False, n_out = 1, pad='VALID'):
         
         el = ElementwiseLayer([input1, input2], tf.add, name = 'el' + name)
         relu = PReluLayer(el, name = 'relu0' + name)
-        conv = Conv2d(relu, middle_size, (1, 1), act=None, padding=pad, W_init=w_init, b_init=None, name = 'conv1' + name)
-        #bn = BatchNormLayer(conv, act=tf.nn.leaky_relu, is_train=is_train, gamma_init=gamma_init, name = 'bn0' + name)
-        print('bn', bn.count_params())
+        conv = Conv2d(relu, middle_size, (1, 1), act=tf.nn.leaky_relu, padding=pad, W_init=w_init, b_init=None, name = 'conv1' + name)
+
         if pad_size >  0:
-            bn = ZeroPad2d(bn, pad_size, name = 'pad0' + name)
+            conv = ZeroPad2d(conv, pad_size, name = 'pad0' + name)
         if conv_type == 'atrous':
-            conv1 = AtrousConv2dLayer(bn, middle_size, (3, 3), arate, act=None, padding=pad, W_init=w_init, b_init=None, name = 'conv1' + name)
+            conv1 = AtrousConv2dLayer(conv, middle_size, (3, 3), arate, act=tf.nn.leaky_relu, padding=pad, W_init=w_init, b_init=None, name = 'conv1' + name)
             print('atrous', (conv1.count_params()))
         elif conv_type == 'plain':
-            conv1 = Conv2d(bn, middle_size, (3, 3), (1, 1), act=None, padding=pad, W_init=w_init, b_init=None, name = 'conv1' + name)
+            conv1 = Conv2d(conv, middle_size, (3, 3), (1, 1), act=tf.nn.leaky_relu, padding=pad, W_init=w_init, b_init=None, name = 'conv1' + name)
             print('plain', (conv1.count_params()))
         elif conv_type == 'deform':
-            offset1 = Conv2d(bn, 18, (3, 3), (1, 1), act=None, padding='SAME', name='offset1')
-            conv1 = DeformableConv2d(bn, offset1, int(middle_size), (3, 3), act=None, W_init=w_init, b_init=None, name = 'conv1' + name)
+            offset1 = Conv2d(conv, 18, (3, 3), (1, 1), act=tf.nn.leaky_relu, padding='SAME', name='offset1')
+            conv1 = DeformableConv2d(conv, offset1, int(middle_size), (3, 3), act=tf.nn.leaky_relu, W_init=w_init, b_init=None, name = 'conv1' + name)
             print('deform', (conv1.count_params() + offset1.count_params()), conv1.outputs.shape)
 
-        bn = BatchNormLayer(conv1, act=tf.nn.leaky_relu, is_train=is_train, gamma_init=gamma_init, name = 'bn1' + name)
-        conv = Conv2d(bn, io_size, (1, 1), act=None, padding=pad, W_init=w_init, name = 'conv3' + name)
+        conv = Conv2d(conv1, io_size, (1, 1), act=None, padding=pad, W_init=w_init, name = 'conv3' + name)
         bn = BatchNormLayer(conv, act=None, is_train=is_train, gamma_init=gamma_init, name = 'bn2' + name)
 
         return relu, bn
 
     def SimpleLayer(input, input_size, middle_size, output_size, pad_size, is_train = True, pad='VALID', name = '', conv_type = 'atrous', arate = 2, ker_size = 1):
         
-        conv = Conv2d(input, input_size, (1, 1), (ker_size, ker_size), act=None, padding=pad, W_init=w_init, name = 'conv0' + name)
-        bn = BatchNormLayer(conv, act=tf.nn.leaky_relu, is_train=is_train, gamma_init=gamma_init, name = 'bn0' + name)
+        bn = Conv2d(input, input_size, (1, 1), (ker_size, ker_size), padding=pad, W_init=w_init, name = 'conv0' + name)
+
         if pad_size != 0:
             bn = ZeroPad2d(bn, pad_size, name = 'pad0' + name)
         if conv_type == 'atrous':
-            conv = AtrousConv2dLayer(bn, middle_size, (3, 3), arate, act=None, padding=pad, W_init=w_init, b_init=None, name = 'conv1' + name)
+            conv = AtrousConv2dLayer(bn, middle_size, (3, 3), arate, act=tf.nn.leaky_relu, padding=pad, W_init=w_init, b_init=None, name = 'conv1' + name)
         elif conv_type == 'plain':
-            conv = Conv2d(bn, middle_size, (3, 3), act=None, padding=pad, W_init=w_init, b_init=None, name = 'conv1' + name)
+            conv = Conv2d(bn, middle_size, (3, 3), act=tf.nn.leaky_relu, padding=pad, W_init=w_init, b_init=None, name = 'conv1' + name)
         elif conv_type == 'deform':
-            offset1 = Conv2d(bn, 18, (3, 3), (1, 1), act=None, padding='SAME', name='offset1')
+            offset1 = Conv2d(bn, 18, (3, 3), (1, 1), act=tf.nn.leaky_relu, padding='SAME', name='offset1')
             conv = DeformableConv2d(bn, offset1, int(middle_size), (3, 3), act=None, W_init=w_init, b_init=None, name = 'conv1' + name)
 
-        bn = BatchNormLayer(conv, act=tf.nn.leaky_relu, is_train=is_train, gamma_init=gamma_init, name = 'bn1' + name)
-        conv = Conv2d(bn, output_size, (1, 1), act=None, padding=pad, W_init=w_init, name = 'conv2' + name)
+        conv = Conv2d(conv, output_size, (1, 1), act=tf.nn.leaky_relu, padding=pad, W_init=w_init, name = 'conv2' + name)
         bn = BatchNormLayer(conv, act=None, is_train=is_train, gamma_init=gamma_init, name = 'bn2' + name)
 
         return bn
@@ -272,13 +608,11 @@ def psp_net(x, is_train = False, reuse = False, n_out = 1, pad='VALID'):
         inputs = InputLayer(x, name = 'inputs')
         channels_rate = 0.5
 
-        conv1 = Conv2d(inputs, 64 * channels_rate, (3, 3), (2, 2), act=None, padding='SAME', W_init=w_init, b_init=None, name='conv1_1')
-        bn1 = BatchNormLayer(conv1, act=tf.nn.leaky_relu, is_train=is_train, gamma_init=gamma_init, name='bn1')
-        bn1 = PReluLayer(bn1, name = 'layer1_relu')
+        conv1 = Conv2d(inputs, 64 * channels_rate, (3, 3), (2, 2), act=tf.nn.leaky_relu, padding='SAME', W_init=w_init, b_init=None, name='conv1_1')
+        bn1 = PReluLayer(conv1, name = 'layer1_relu')
         conv1 = Conv2d(bn1, 64 * channels_rate, (3, 3), (1, 1), act=None, padding='SAME', W_init=w_init, b_init=None, name='conv1_3')
         bn1 = BatchNormLayer(conv1, act=tf.nn.leaky_relu, is_train=is_train, gamma_init=gamma_init, name='bn1_1')
-        conv1 = Conv2d(bn1, 128 * channels_rate, (3, 3), (1, 1), act=None, padding='SAME', W_init=w_init, b_init=None, name='conv1_4')
-        bn1 = BatchNormLayer(conv1, act=tf.nn.leaky_relu, is_train=is_train, gamma_init=gamma_init, name='bn1_2')
+        conv1 = Conv2d(bn1, 128 * channels_rate, (3, 3), (1, 1), act=tf.nn.leaky_relu, padding='SAME', W_init=w_init, b_init=None, name='conv1_4')
         pool1 = MaxPool2d(conv1, (3, 3), (2, 2), padding='SAME', name='pool2')
         conv1 = Conv2d(pool1, 256 * channels_rate, (1, 1), act=None, padding=pad, W_init=w_init, b_init=None, name='conv1_5')
         bn1 = BatchNormLayer(conv1, act=None, is_train=is_train, gamma_init=gamma_init, name='bn1_3')
@@ -308,8 +642,8 @@ def psp_net(x, is_train = False, reuse = False, n_out = 1, pad='VALID'):
         bn18 = SimpleLayer(rel17, 256 * channels_rate, 256 * channels_rate, 1024 * channels_rate, pad_size = 4, name = 'layer18', arate = 4, is_train = is_train)
 
         conv19_0, bn19 = AddLayer(bn17, bn18, 1024 * channels_rate, 1024 * channels_rate, pad_size = 4, name = 'layer19', arate = 4, is_train = is_train)
-        conv20_0, bn20 = AddLayer(conv19_0, bn19, 1024 * channels_rate, 1024 * channels_rate, pad_size = 0, 
-                                  name = 'layer20', arate = 4, is_train = is_train, conv_type = 'deform')
+        conv20_0, bn20 = AddLayer(conv19_0, bn19, 1024 * channels_rate, 1024 * channels_rate, pad_size = 4, 
+                                  name = 'layer20', arate = 4, is_train = is_train, conv_type = 'atrous')
 
         el21 = ElementwiseLayer([conv20_0, bn20], tf.add, name = 'layer21')
         pool12 = MaxPool2d(bn2, (3, 3), (1, 1), padding='SAME', name='pool12')

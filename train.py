@@ -1,5 +1,5 @@
 """
-This code is based on DrSleep's framework: https://github.com/DrSleep/tensorflow-deeplab-resnet 
+This code is based on DrSleep's framework: https://github.com/DrSleep/tensorflow-deeplab-resnet
 """
 
 from __future__ import print_function
@@ -62,7 +62,7 @@ def get_arguments():
 def save(saver, sess, logdir, step):
    model_name = 'model.ckpt'
    checkpoint_path = os.path.join(logdir, model_name)
-    
+
    if not os.path.exists(logdir):
       os.makedirs(logdir)
    saver.save(sess, checkpoint_path, global_step = step)
@@ -115,12 +115,12 @@ def create_loss(output, label, num_classes, ignore_label, use_w = False):
 def main():
     """Create the model and start the training."""
     args = get_arguments()
-    
+
     h, w = map(int, args.input_size.split(','))
     input_size = (h, w)
-    
+
     coord = tf.train.Coordinator()
-    
+
     with tf.name_scope("create_inputs"):
         reader = ImageReader(
             args.data_list,
@@ -131,9 +131,9 @@ def main():
             IMG_MEAN,
             coord)
         image_batch, label_batch = reader.dequeue(args.batch_size)
-    
+
     net = ICNet_BN({'data': image_batch}, is_training = True, num_classes = args.num_classes)
-    
+
     sub4_out = net.layers['sub4_out']
     sub24_out = net.layers['sub24_out']
     sub124_out = net.layers['conv6']
@@ -143,7 +143,7 @@ def main():
     restore_var = tf.global_variables()
     all_trainable = [v for v in tf.trainable_variables() if ('beta' not in v.name and 'gamma' not in v.name) or args.train_beta_gamma]
     restore_var = [v for v in tf.global_variables() if not (len([f for f in fc_list if f in v.name])) or not args.not_restore_last]
-   
+
     for v in restore_var:
         print(v.name)
 
@@ -151,7 +151,7 @@ def main():
     loss_sub24 = create_loss(sub24_out, label_batch, args.num_classes, args.ignore_label, args.use_class_weights)
     loss_sub124 = create_loss(sub124_out, label_batch, args.num_classes, args.ignore_label, args.use_class_weights)
     l2_losses = [args.weight_decay * tf.nn.l2_loss(v) for v in tf.trainable_variables() if 'weights' in v.name]
-    
+
     loss = LAMBDA1 * loss_sub4 +  LAMBDA2 * loss_sub24 + LAMBDA3 * loss_sub124
 
     reduced_loss = loss + tf.add_n(l2_losses)
@@ -183,34 +183,30 @@ def main():
     preds_summary4 = tf.py_func(decode_labels, [pred4, SAVE_NUM_IMAGES, args.num_classes], tf.uint8)
     preds_summary24 = tf.py_func(decode_labels, [pred24, SAVE_NUM_IMAGES, args.num_classes], tf.uint8)
     preds_summary124 = tf.py_func(decode_labels, [pred124, SAVE_NUM_IMAGES, args.num_classes], tf.uint8)
-    
-    total_images_summary = tf.summary.image('images', 
-                                     tf.concat(axis=2, values=[images_summary, labels_summary, preds_summary124]), 
+
+    total_images_summary = tf.summary.image('images',
+                                     tf.concat(axis=2, values=[images_summary, labels_summary, preds_summary124]),
                                      max_outputs=SAVE_NUM_IMAGES) # Concatenate row-wise.
 
-    total_summary = [total_images_summary]
+    total_summary = total_images_summary
 
     loss_summary = tf.summary.scalar('Total_loss', reduced_loss)
 
-    total_summary.append(loss_summary)
-    
+    #total_summary.append(loss_summary)
+
     summary_writer = tf.summary.FileWriter(args.snapshot_dir,
                                            graph=tf.get_default_graph())
     ##############################
     ##############################
 
-    # Using Poly learning rate policy 
-    if LR_SHEDULE == {}:
-        base_lr = tf.constant(args.learning_rate)
-        step_ph = tf.placeholder(dtype=tf.float32, shape=())
-        learning_rate = tf.scalar_mul(base_lr, tf.pow((1 - step_ph / args.num_steps), args.power))
-    else:
-        step_ph = tf.placeholder(dtype=tf.float32, shape=())
-        learning_rate = tf.Variable(LR_SHEDULE.popitem()[1], tf.float32)
+    
+    base_lr = tf.constant(args.learning_rate)
+    step_ph = tf.placeholder(dtype=tf.float32, shape=())
+    learning_rate = tf.train.exponential_decay(base_lr, step_ph, args.num_steps, args.power)
 
     lr_summary = tf.summary.scalar('Learning_rate', learning_rate)
-    total_summary.append(lr_summary)
-    
+    #total_summary.append(lr_summary)
+
     # Gets moving_mean and moving_variance update operations from tf.GraphKeys.UPDATE_OPS
     if args.update_mean_var == False:
         update_ops = None
@@ -218,18 +214,19 @@ def main():
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
 
     with tf.control_dependencies(update_ops):
-        opt_conv = tf.train.MomentumOptimizer(learning_rate, args.momentum)
+        opt_conv = tf.train.AdamOptimizer(learning_rate)
+        #opt_conv = tf.train.MomentumOptimizer(learning_rate, args.momentum)
         grads = tf.gradients(reduced_loss, all_trainable)
         train_op = opt_conv.apply_gradients(zip(grads, all_trainable))
-        
-    # Set up tf session and initialize variables. 
+
+    # Set up tf session and initialize variables.
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
     sess = tf.Session(config=config)
     init = tf.global_variables_initializer()
-    
+
     sess.run(init)
-    
+
     # Saver for storing checkpoints of the model.
     saver = tf.train.Saver(var_list = tf.global_variables(), max_to_keep = 10)
 
@@ -240,39 +237,46 @@ def main():
         load(loader, sess, ckpt.model_checkpoint_path)
     else:
         print('Restore from pre-trained model...')
-        net.load(args.restore_from, sess, ignore_layers = fc_list)
+        #net.load(args.restore_from, sess, ignore_layers = fc_list)
 
     # Start queue threads.
     threads = tf.train.start_queue_runners(coord=coord, sess=sess)
-    summ_op = tf.summary.merge(total_summary)
-    
+    #summ_op = tf.summary.merge(total_summary)
+
+
     # Iterate over training steps.
+    save_summary_every = 20
     for step in range(args.num_steps):
         start_time = time.time()
-        
+
         if LR_SHEDULE != {}:
             if step >= LR_SHEDULE.keys()[0]:
                 tf.assign(learning_rate, LR_SHEDULE.popitem()[0])
 
         feed_dict = {step_ph: step}
-        if step % args.save_pred_every == 0:
-            
-            loss_value, loss1, loss2, loss3, _, summary =\
-                sess.run([reduced_loss, loss_sub4, loss_sub24, loss_sub124, train_op, summ_op], feed_dict = feed_dict)
+        if not (step % args.save_pred_every == 0):
 
-            save(saver, sess, args.snapshot_dir, step)
-            summary_writer.add_summary(summary, step)
+            loss_value, loss1, loss2, loss3, _, lr_sum, l_sum = \
+            sess.run([reduced_loss, loss_sub4,
+            loss_sub24, loss_sub124, train_op, lr_summary, loss_summary], feed_dict=feed_dict)
 
         else:
-            loss_value, loss1, loss2, loss3, _ = sess.run([reduced_loss, loss_sub4, loss_sub24, loss_sub124, train_op], feed_dict=feed_dict)
-            
+            save(saver, sess, args.snapshot_dir, step)
+            loss_value, loss1, loss2, loss3, _, lr_sum, l_sum, t_sum = \
+            sess.run([reduced_loss, loss_sub4,
+            loss_sub24, loss_sub124, train_op, lr_summary, loss_summary, total_summary], feed_dict=feed_dict)
+            summary_writer.add_summary(t_sum, step)
+
+        if step % save_summary_every == 0:
+            summary_writer.add_summary(lr_sum, step)
+            summary_writer.add_summary(l_sum, step)
+
+
         duration = time.time() - start_time
-        #print('shape', sess.run(tf.shape(sub124_out)))
-        #quit()
         print('step {:d} \t total loss = {:.3f}, sub4 = {:.3f}, sub24 = {:.3f}, sub124 = {:.3f} ({:.3f} sec/step)'.format(step, loss_value, loss1, loss2, loss3, duration))
-        
+
     coord.request_stop()
     coord.join(threads)
-    
+
 if __name__ == '__main__':
     main()

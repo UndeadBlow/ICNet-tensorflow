@@ -11,9 +11,11 @@ import tensorflow as tf
 import numpy as np
 
 from model import ICNet_BN
+from tensorlayer_nets import *
 from tools import decode_labels
 from image_reader import ImageReader
 import logging
+from inference import GetAllFilesListRecusive
 
 from train import IMG_MEAN, NUM_CLASSES, INPUT_SIZE, IGNORE_LABEL
 
@@ -27,7 +29,7 @@ def calc_size(filename):
 
 SAVE_DIR = './output/'
 
-DATA_LIST_PATH = '/mnt/Data/Datasets/Segmentation/vistas_no_pp/valid_list.txt'
+DATA_LIST_PATH = '/mnt/Data/Datasets/Segmentation/mapillary-vistas-dataset_public_v1.0/valid.txt'
 
 snapshot_dir = './snapshots'
 best_models_dir = './best_models'
@@ -40,7 +42,7 @@ INTERVAL = 120
 INPUT_SIZE = INPUT_SIZE.split(',')
 INPUT_SIZE = [int(INPUT_SIZE[0]), int(INPUT_SIZE[1])]
 IGNORE_LABEL = IGNORE_LABEL
-batch_size = 1
+batch_size = 6
 
 
 def get_arguments():
@@ -107,11 +109,11 @@ def load_last_best_iou(dir):
 
     best_iou = 0.0
     for f in files:
-        
+
         iou = float(f[f.rfind('miou_') + 5 : f.rfind('.')])
         if iou > best_iou:
             best_iou = iou
-    
+
     return best_iou
 
 def evaluate_checkpoint(model_path, args):
@@ -139,13 +141,12 @@ def evaluate_checkpoint(model_path, args):
     threads = tf.train.start_queue_runners(coord = coord, sess = sess)
 
     # Create network.
-    net = ICNet_BN({'data': image_batch}, is_training = False, num_classes = num_classes)
-    # Which variables to load.
-    restore_var = tf.global_variables()
+    #net = ICNet_BN({'data': image_batch}, is_training = False, num_classes = num_classes)
+    net = unext(image_batch, is_train = False, n_out = NUM_CLASSES)
 
     # Predictions.
-    raw_output = net.layers['conv6']
-
+    #raw_output = net.layers['conv6']
+    raw_output = net.outputs
 
     raw_output_up = tf.image.resize_bilinear(raw_output, size = INPUT_SIZE, align_corners = True)
     raw_output_up = tf.argmax(raw_output_up, dimension = 3)
@@ -154,53 +155,122 @@ def evaluate_checkpoint(model_path, args):
     # mIoU
     pred_flatten = tf.reshape(pred, [-1,])
     raw_gt = tf.reshape(label_batch, [-1,])
-    if args.ignore_zero:
-        indices = tf.squeeze(tf.where(
-            tf.logical_and(
-                tf.less_equal(raw_gt, num_classes - 1),
-                tf.greater(raw_gt, 0)
-                ),), 
-            1)
-    else:
-        indices = tf.squeeze(tf.where(tf.less_equal(raw_gt, num_classes - 1)), 1)
-
-    #indices = tf.squeeze(tf.where(tf.less_equal(raw_gt, num_classes - 1)), 1)
+    indices = tf.squeeze(tf.where(tf.not_equal(raw_gt, IGNORE_LABEL)), 1)
 
     gt = tf.cast(tf.gather(raw_gt, indices), tf.int32)
     pred = tf.gather(pred_flatten, indices)
 
-    metric, op = tf.contrib.metrics.streaming_mean_iou(pred, gt, num_classes = num_classes)
+    iou_metric, iou_op = tf.metrics.mean_iou(pred, gt, num_classes = num_classes)
+    acc_metric, acc_op = tf.metrics.accuracy(pred, gt)
 
-    mIoU, update_op = metric, op
-    
     # Summaries
-    miou_op = tf.summary.scalar('mIOU', mIoU)
+    iou_summ_op = tf.summary.scalar('mIOU', iou_metric)
+    acc_summ_op = tf.summary.scalar('Accuracy', acc_metric)
     start = time.time()
     logging.info('Starting evaluation at ' + time.strftime('%Y-%m-%d-%H:%M:%S',
                                                         time.gmtime()))
-    
+
     sess.run(tf.global_variables_initializer())
     sess.run(tf.local_variables_initializer())
 
-    saver = tf.train.Saver(var_list = restore_var)
+    saver = tf.train.Saver(var_list = tf.global_variables())
     load(saver, sess, model_path)
-    
 
-    for step in range(num_steps):
-        preds, _ = sess.run([pred, update_op])
+    for step in range(int(num_steps / batch_size)):
+        preds, _, _ = sess.run([raw_output_up, iou_op, acc_op])
 
-        if step % 500 == 0:
-            print('Finish {0}/{1}'.format(step + 1, num_steps))
+        if step % int(100 / batch_size) == 0:
+            print('Finish {0}/{1}'.format(step + 1, int(num_steps / batch_size)))
 
-    iou, summ = sess.run([mIoU, miou_op])
+    iou, iou_summ, acc, acc_summ = sess.run([iou_metric, iou_summ_op, acc_metric, acc_summ_op])
 
     sess.close()
 
     coord.request_stop()
     #coord.join(threads)
 
-    return summ, iou
+    return iou, iou_summ, acc, acc_summ
 
+# def evaluate_checkpoint(model_path, args):
+#     # Set placeholder
+#     image_filename = tf.placeholder(dtype=tf.string)
+#     anno_filename = tf.placeholder(dtype=tf.string)
+#
+#     # Read & Decode image
+#     img = tf.image.decode_jpeg(tf.read_file(image_filename), channels=3)
+#     anno = tf.image.decode_png(tf.read_file(anno_filename), channels=1)
+#
+#     ori_shape = tf.shape(img)
+#     img_r, img_g, img_b = tf.split(axis=2, num_or_size_splits=3, value=img)
+#     img = tf.cast(tf.concat(axis=2, values=[img_b, img_g, img_r]), dtype=tf.float32)
+#
+#     # Extract mean.
+#     img = tf.image.resize_images(img, INPUT_SIZE)
+#     img = img - IMG_MEAN
+#     img = tf.expand_dims(img, dim = 0)
+#     h, w = INPUT_SIZE
+#     img.set_shape([1, h, w, 3])
+#     anno = tf.image.resize_nearest_neighbor(tf.expand_dims(anno, 0), INPUT_SIZE)
+#     anno = tf.squeeze(anno, squeeze_dims=[0])
+#     anno.set_shape([h, w, 1])
+#     net = ICNet_BN({'data': img}, is_training = False, num_classes = num_classes)
+#
+#     # Predictions.
+#     raw_output = net.layers['conv6']
+#
+#     raw_output_up = tf.image.resize_bilinear(raw_output, size=ori_shape[:2], align_corners=True)
+#     raw_output_up = tf.argmax(raw_output_up, axis=3)
+#     raw_pred = tf.expand_dims(raw_output_up, dim=3)
+#
+#     # mIoU
+#     pred_flatten = tf.reshape(raw_pred, [-1,])
+#     raw_gt = tf.reshape(anno, [-1,])
+#
+#     #indices = tf.squeeze(tf.where(tf.less_equal(raw_gt, num_classes - 1)), 1)
+#     mask = tf.less_equal(raw_gt, num_classes - 1)
+#     indices = tf.squeeze(tf.where(mask), 1)
+#     gt = tf.cast(tf.gather(raw_gt, indices), tf.int32)
+#     pred = tf.gather(pred_flatten, indices)
+#
+#     mIoU, update_op = tf.contrib.metrics.streaming_mean_iou(pred, gt, num_classes=NUM_CLASSES)
+#     miou_op = tf.summary.scalar('mIOU', mIoU)
+#
+#     # Set up tf session and initialize variables.
+#     config = tf.ConfigProto()
+#     config.gpu_options.allow_growth = True
+#     sess = tf.Session(config=config)
+#     init = tf.global_variables_initializer()
+#     local_init = tf.local_variables_initializer()
+#
+#     sess.run(init)
+#     sess.run(local_init)
+#
+#     restore_var = tf.global_variables()
+#     saver = tf.train.Saver(var_list = restore_var)
+#     load(saver, sess, model_path)
+#
+#     imgs = []
+#     labels = []
+#     with open(DATA_LIST_PATH, 'r') as f:
+#         for line in f:
+#             if line.strip():
+#                 imgs.append(line.split(' ')[0].strip())
+#                 labels.append(line.split(' ')[1].strip())
+#     if len(imgs) != len(labels):
+#         print('WTF imgs != labels')
+#         quit()
+#
+#     for i in range(len(imgs)):
+#         if i % 100:
+#             print('Finish {0}/{1}'.format(i + 1, len(imgs)))
+#
+#         feed_dict = {image_filename: imgs[i], anno_filename: labels[i]}
+#         _ = sess.run(update_op, feed_dict=feed_dict)
+#
+#
+#     iou, summ = sess.run([mIoU, miou_op])
+#
+#     return summ, iou
 #########################################################
 
 
@@ -213,9 +283,9 @@ def main():
 
         while True:
             start = time.time()
-            
+
             best_iou = load_last_best_iou(args.best_models_dir)
-            
+
             model_path = tf.train.latest_checkpoint(args.snapshot_dir)
 
             if not model_path:
@@ -231,11 +301,12 @@ def main():
                 eval_path = args.snapshot_dir + '/eval'
                 if not (os.path.exists(eval_path)):
                     os.mkdir(eval_path)
-                
+
                 summary_writer = tf.summary.FileWriter(eval_path)
 
-                summ, iou = evaluate_checkpoint(last_evaluated_model_path, args)
+                iou, iou_summ, acc, acc_summ  = evaluate_checkpoint(last_evaluated_model_path, args)
                 print('Step', global_step, ', mIOU:', iou)
+                print('Step', global_step, ', Accuracy:', acc)
 
                 if iou > best_iou:
                     if len(args.best_models_dir):
@@ -244,20 +315,21 @@ def main():
 
                 print('Best for now mIOU: {}'.format(best_iou))
 
-                summary_writer.add_summary(summ, global_step)
+                summary_writer.add_summary(iou_summ, global_step)
+                summary_writer.add_summary(acc_summ, global_step)
                 number_of_evaluations += 1
-            
+
                 ########################
 
                 time_to_next_eval = start + args.eval_interval - time.time()
 
                 if time_to_next_eval > 0:
-                    
+
                     time.sleep(time_to_next_eval)
 
     # run once. Not tested yet
     else:
-        
+
         model_path = tf.train.latest_checkpoint(args.snapshot_dir)
         global_step = int(os.path.basename(model_path).split('-')[1])
         summ, iou = evaluate_checkpoint(model_path, args)

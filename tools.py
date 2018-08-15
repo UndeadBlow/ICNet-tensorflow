@@ -3,6 +3,7 @@ import numpy as np
 from PIL import Image
 import tensorflow as tf
 
+import hyperparams
 from hyperparams import *
 
 # label_colours = [(128, 64, 128), (244, 35, 231), (69, 69, 69)
@@ -26,7 +27,7 @@ from hyperparams import *
 #                 ,(44, 88, 166)]
 #                 # 18 = bicycle, 19 = void label
 
-def decode_labels(mask, num_images=1, num_classes=21):
+def decode_labels(mask, num_images = 1, num_classes = len(hyperparams.label_colours), label_colours = hyperparams.label_colours):
     """Decode batch of segmentation masks.
     
     Args:
@@ -49,7 +50,7 @@ def decode_labels(mask, num_images=1, num_classes=21):
           for k_, k in enumerate(j):
 
               if k < num_classes:
-                  pixels[k_,j_] = label_colours[k]
+                  pixels[k_,j_] = tuple(label_colours[k])
       outputs[i] = np.array(img)
     return outputs
 
