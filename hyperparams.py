@@ -45,17 +45,24 @@ LAMBDA1 = 0.16
 LAMBDA2 = 0.4
 LAMBDA3 = 1.0
 
+# COLORS IN RGB
 #label_colours = [(0, 0, 0), (128, 64, 128), (250, 0, 0)]
                 # 0 void label, 1 = road, 2 = road mark
 
-label_names = ['unlabeled', 'ground', 'road', 'sidewalk', 'rail track', 'building',
-               'wall', 'fence', 'bridge', 'tunnel', 'pole', 'traffic light',
-               'traffic sign', 'vegetation', 'terrain', 'person', 'car', 'motorcycle']
-label_colours = [(0,  0, 0), (128, 64,128), (244, 35,232), (250,170,160), (70, 70, 70), (102, 102,156),
-                 (190,153,153), (180,165,180), (150,120, 90), (153,153,153), (250,170, 30),
-                 (220,220,  0), (107,142, 35), (152,251,152), (80, 150, 250), (255,  0,  0),
-                 (0, 60,100), (0,  0,  255)]
+# label_names = ['unlabeled', 'ground', 'road', 'sidewalk', 'rail track', 'building',
+#                'wall', 'fence', 'bridge', 'tunnel', 'pole', 'traffic light',
+#                'traffic sign', 'vegetation', 'terrain', 'person', 'car', 'motorcycle']
+# label_colours = [(0,  0, 0), (128, 64,128), (244, 35,232), (250,170,160), (70, 70, 70), (102, 102,156),
+#                  (190,153,153), (180,165,180), (150,120, 90), (153,153,153), (250,170, 30),
+#                  (220,220,  0), (107,142, 35), (152,251,152), (80, 150, 250), (255,  0,  0),
+#                  (0, 60,100), (0,  0,  255)]
 
+label_names = ['unlabeled', 'debris', 'sky', 'obstacle', 'ground', 'road',
+               'building', 'pipe', 'building_material', 'big_vegetation', 'small_vegetation',
+               'manhole', 'water', 'person', 'animal', 'vehicle']
+label_colours = [(0,  0, 0), (58, 156, 147), (0, 177, 247), (94, 30, 104), (191, 119, 56), (182, 179, 182),
+                 (102, 102, 102), (243, 15, 190), (230, 225, 54), (60, 112, 60), (146, 243, 146),
+                 (122, 3, 51), (164, 216, 255), (250, 0, 55), (178, 20, 50), (0, 30, 130)]
 
 # label_names = ['unlabeled', 'ground', 'road', 'sidewalk', 'rail track', 'building',
 #                'wall', 'fence', 'bridge', 'tunnel', 'pole', 'traffic light',
