@@ -440,6 +440,109 @@ def unext(x, is_train = False, reuse = False, n_out = 1, pad='SAME', activation 
 
     return conv1
 
+def unextv5(x, is_train = False, reuse = False, n_out = 1, pad='SAME', activation = tf.nn.relu, depth = 0.5):
+    # leaky_rely speed: 57.4 ms
+    # relu speed:       48.9 ms
+    # selu speed:       50.0 ms
+    def ResNextBlock(input, n_inputs, name, add = True, reduced = False):
+
+        # The idea from mobilenet that bottleneck layer should be linear
+        conv0 = Conv2d(input, n_inputs / 2, (1, 1), act = activation, name = name + 'conv1_1', W_init = w_init, padding = 'SAME')
+        conv1 = Conv2d(conv0, n_inputs / 4, (1, 1), act = activation, name = name + 'conv1_2', W_init = w_init, padding = 'SAME')
+
+        conv1 = Conv2d(conv1, n_inputs / 2, (3, 1), act = activation, name = name + 'conv1_3', W_init = w_init, padding = 'SAME')
+        conv1 = Conv2d(conv1, n_inputs / 2, (1, 3), act = activation, name = name + 'conv1_4', W_init = w_init, padding = 'SAME')
+
+        if reduced:
+            conv1 = ElementwiseLayer([conv0, conv1], tf.add, name = name + 'add1_1')
+            return conv1
+        else:
+            conv1 = Conv2d(conv1, n_inputs, (1, 1), act = activation, name = name + 'conv1_5', W_init = w_init, padding = 'SAME')
+            if add:
+                conv1 = ElementwiseLayer([conv1, input], tf.add, name = name + 'add1_1')
+            else:
+                conv1 = ConcatLayer([conv1, input], name = name + 'concat1_1')
+
+        return conv1
+
+    _, nx, ny, nz = x.get_shape().as_list()
+    with tf.variable_scope("unext", reuse = reuse):
+
+        w_init = tf.contrib.layers.xavier_initializer_conv2d()
+        b_init = tf.constant_initializer(value = 0.0)
+
+        tl.layers.set_name_reuse(reuse)
+        inputs = InputLayer(x, name = 'inputs')
+
+        # speed with 1x3 3x1 first layer 67.4 ms
+        # speed with 3x3 first layer 65.8 ms
+        # cudnn speed up?
+        # check the same on cpu to exclude cudnn effect:
+        # 3x1 1x3: 853 ms (1964217)
+        # 3x3:     859 ms <- but here are less parameters (1961689)
+
+        # speed with 3x1 1x3 deconvs - 67.4 (1964217)
+        # with 3x3 - 67.0 (2353881)
+        # same on cpu:
+        # 3x1 1x3: 853 ms
+        # 3x3:     916 ms 
+        conv1 = Conv2d(inputs, 8 * depth, (3, 1), (1, 1), act = activation, name = 'conv0_1', W_init = w_init, padding = 'SAME')
+        conv1 = Conv2d(inputs, 16 * depth, (1, 3), (1, 1), act = activation, name = 'conv0_1', W_init = w_init, padding = 'SAME')
+        # +1 layers here 
+        # without 1955417 params and 54 ms
+        # with 1955417 params and 57.4 ms
+        conv1 = Conv2d(conv1, 32 * depth, (3, 1), (1, 1), act = activation, name = 'conv0_1', W_init = w_init, padding = 'SAME')
+        conv1 = Conv2d(conv1, 64 * depth, (1, 3), (1, 1), act = activation, name = 'conv0_1', W_init = w_init, padding = 'SAME')
+
+        pool1 = MaxPool2d(conv1, (2, 2), name='pool1')
+        conv2 = ResNextBlock(pool1, 64 * depth, 'block3', add = False)
+        conv2 = ResNextBlock(conv2, 128 * depth, 'block4')
+        pool2 = MaxPool2d(conv2, (2, 2), name='pool2')
+        conv3 = ResNextBlock(pool2, 128 * depth, 'block5', add = False)
+        conv3 = ResNextBlock(conv3, 256 * depth, 'block6')
+        pool3 = MaxPool2d(conv3, (2, 2), name='pool3')
+        conv4 = ResNextBlock(pool3, 256 * depth, 'block7', add = False)
+        conv4 = ResNextBlock(conv4, 512 * depth, 'block8')
+        pool4 = MaxPool2d(conv4, (1, 1), name='pool4')
+        conv5 = ResNextBlock(pool4, 512 * depth, 'block9', add = False)
+        conv5 = ResNextBlock(conv5, 1024 * depth, 'block10')
+        print(conv5.outputs.shape)
+
+
+        up4 = DeConv2d(conv5, int(512 * depth), (3, 1),(nx / 8, ny / 8), (2, 1), act = None, name='deconv4_1', W_init=w_init)
+        up4 = DeConv2d(up4, int(512 * depth), (1, 3), (nx / 8, ny / 8), (1, 2), act = None, name='deconv4_2', W_init=w_init)
+        up4 = ConcatLayer([up4, conv4], 3, name='concat4')
+        conv4 = ResNextBlock(up4, 1024 * depth, 'block11', reduced = True)
+        conv4 = ResNextBlock(conv4, 512 * depth, 'block12')
+        up3 = DeConv2d(conv4, int(256 * depth),(3, 1), (nx / 4, ny / 4), (2, 1), act = None, name='deconv3_1', W_init=w_init)
+        up3 = DeConv2d(up3, int(256 * depth), (1, 3), (nx / 4, ny / 4), (1, 2),  act = None, name='deconv3_2', W_init=w_init)
+        up3 = ConcatLayer([up3, conv3], 3, name='concat3')
+        conv3 = ResNextBlock(up3, 512 * depth, 'block13', reduced = True)
+        conv3 = ResNextBlock(conv3, 256 * depth, 'block14')
+        up2 = DeConv2d(conv3, int(128 * depth), (3, 1), (nx / 2, ny / 2), (2, 1), act = None, name='deconv2_1', W_init=w_init)
+        up2 = DeConv2d(up2, int(128 * depth), (1, 3), (nx / 2, ny / 2), (1, 2), act = None, name='deconv2_2', W_init=w_init)
+        up2 = ConcatLayer([up2, conv2], 3, name='concat2')
+        conv2 = ResNextBlock(up2, 256 * depth, 'block15', reduced = True)
+        conv2 = ResNextBlock(conv2, 128 * depth, 'block16')
+        up1 = DeConv2d(conv2, int(64 * depth), (3, 1), (nx / 1, ny / 1), (2, 1), act = None, name='deconv1_1', W_init=w_init)
+        up1 = DeConv2d(up1, int(64 * depth), (1, 3), (nx / 1, ny / 1), (1, 2), act = None, name='deconv1_2', W_init=w_init)
+        up1 = ConcatLayer([up1, conv1], 3, name='concat1')
+        # 3x1 1x3 here last layers -> 1943193 params
+        # 3x3 -> 1955417 params
+
+        conv1 = Conv2d(up1, 128 * depth, (3, 1), act = activation, name = 'conv17_1', W_init = w_init, padding = 'SAME')
+        conv1 = Conv2d(conv1, 128 * depth, (1, 3), act = activation, name = 'conv17_2', W_init = w_init, padding = 'SAME')
+        conv1 = Conv2d(conv1, 128 * depth, (3, 1), act = activation, name = 'conv17_3', W_init = w_init, padding = 'SAME')
+        conv1 = Conv2d(conv1, 128 * depth, (1, 3), act = activation, name = 'conv17_4', W_init = w_init, padding = 'SAME')
+
+        conv1 = Conv2d(conv1, n_out, (1, 1), act=None, padding='SAME', W_init=w_init, b_init=b_init, name='uconv1')
+
+        #print(conv1.outputs.shape)
+        print('Params :', conv1.count_params())
+        # quit()
+
+    return conv1
+
 def u_net_bn(x, is_train=False, reuse=False, batch_size=None, pad='SAME', n_out=1):
     """image to image translation via conditional adversarial learning"""
     nx = int(x._shape[1])
