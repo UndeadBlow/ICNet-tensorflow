@@ -1,6 +1,7 @@
 import scipy.io as sio
 import numpy as np
 from PIL import Image
+import cv2
 import tensorflow as tf
 
 import hyperparams
@@ -41,17 +42,18 @@ def decode_labels(mask, num_images = 1, num_classes = len(hyperparams.label_colo
     n, h, w, c = mask.shape
 
     assert(n >= num_images), 'Batch size %d should be greater or equal than number of images to save %d.' % (n, num_images)
-    outputs = np.zeros((num_images, h, w, 3), dtype=np.uint8)
-    for i in range(num_images):
-      img = Image.new('RGB', (len(mask[i, 0]), len(mask[i])))
-      pixels = img.load()
-      for j_, j in enumerate(mask[i, :, :, 0]):
-          
-          for k_, k in enumerate(j):
+    outputs = np.zeros((num_images, h, w, 3), dtype = np.uint8)
 
-              if k < num_classes:
-                  pixels[k_,j_] = tuple(label_colours[k])
-      outputs[i] = np.array(img)
+    identity = np.arange(256, dtype = np.dtype('uint8'))
+    zeros = np.zeros(256, np.dtype('uint8'))
+    lut = np.dstack((identity, identity, zeros))
+    for i in range(len(label_colours)):
+      lut[0][i] = label_colours[i]
+
+    for i in range(num_images):
+      m = np.stack((mask[i][:,:,0],) * 3, -1).astype(np.uint8)
+      outputs[i] = cv2.LUT(m, lut)
+
     return outputs
 
 def prepare_label(input_batch, new_size, num_classes, one_hot=True):

@@ -11,7 +11,7 @@ import time
 
 import tensorflow as tf
 
-from model import ICNet_BN
+from model import ICNet_BN, ICNext
 from tools import decode_labels, prepare_label, inv_preprocess
 from image_reader import ImageReader
 
@@ -132,7 +132,7 @@ def main():
             coord)
         image_batch, label_batch = reader.dequeue(args.batch_size)
 
-    net = ICNet_BN({'data': image_batch}, is_training = True, num_classes = args.num_classes)
+    net = ICNext({'data': image_batch}, is_training = True, num_classes = args.num_classes)
 
     sub4_out = net.layers['sub4_out']
     sub24_out = net.layers['sub24_out']
@@ -248,10 +248,6 @@ def main():
     save_summary_every = 20
     for step in range(args.num_steps):
         start_time = time.time()
-
-        if LR_SHEDULE != {}:
-            if step >= LR_SHEDULE.keys()[0]:
-                tf.assign(learning_rate, LR_SHEDULE.popitem()[0])
 
         feed_dict = {step_ph: step}
         if not (step % args.save_pred_every == 0):

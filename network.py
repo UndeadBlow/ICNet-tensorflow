@@ -328,8 +328,41 @@ class Network(object):
         return tf.image.resize_bilinear(input, size=size, align_corners=True, name=name)
 
     @layer
-    def interp(self, input, factor, name):
-        ori_h, ori_w = input.get_shape().as_list()[1:3]
-        resize_shape = [(int)(ori_h * factor), (int)(ori_w * factor)]
+    def interp(self, input, factor = -1, name = '', size = [], force_resize = False):
+        if factor < 1.0 and factor > 0.0 or force_resize:
+            ori_h, ori_w = input.get_shape().as_list()[1:3]
+            if factor > 0:
+                resize_shape = [(int)(ori_h * factor), (int)(ori_w * factor)]
+            else:
+                resize_shape = [int(size[0]), int(size[1])]
+            return tf.image.resize_bilinear(input, size = resize_shape, align_corners = True, name = name)
 
-        return tf.image.resize_bilinear(input, size=resize_shape, align_corners=True, name=name)
+        else:
+
+            if factor < 0.0:
+                ori_h, ori_w = input.get_shape().as_list()[1:3]
+                batch = input.get_shape().as_list()[0]
+                channel = input.get_shape().as_list()[3]
+                res_h = int(size[0])
+                res_w = int(size[1])
+                factor = int(res_h / ori_h)
+                pad = 'VALID'
+            else:
+                ori_h, ori_w = input.get_shape().as_list()[1:3]
+                batch = input.get_shape().as_list()[0]
+                channel = input.get_shape().as_list()[3]
+                res_h = (int)(ori_h * factor)
+                res_w = (int)(ori_w * factor)
+                pad = 'SAME'
+                
+            with tf.variable_scope(name) as scope:
+                kernel = self.make_var('weights', shape = [3, 3, channel, channel])
+                #print('deconv else', batch, res_h, res_w, channel, size, factor)
+                output = tf.nn.selu(input, name = scope.name)
+                output = tf.nn.conv2d_transpose(output, kernel, 
+                    [batch, res_h, res_w, channel], [1, int(factor), int(factor), 1], padding = pad, name = scope.name)
+
+                return output
+
+        #return tf.image.resize_bilinear(input, size=resize_shape, align_corners=True, name=name)
+

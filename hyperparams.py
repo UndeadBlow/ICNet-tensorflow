@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import numpy as np
 import cv2
 import math
@@ -5,38 +8,35 @@ import math
 #  Mean taken from Mapilary Vistas dataset
 IMG_MEAN = np.array((126.63854281333334, 123.24824418666667, 113.14331923666667), dtype = np.float32)
 
-BATCH_SIZE = 4
-DATA_LIST_PATH = '/mnt/Data/Datasets/Segmentation/mapillary-vistas-dataset_public_v1.0/plain_train_no_apollo.txt'
-IGNORE_LABEL = 255
-INPUT_SIZE = '560,560'
-LEARNING_RATE = 1e-4
-MOMENTUM = 0.9
-NUM_CLASSES = 18
-NUM_STEPS = 200000
-POWER = 0.001
-RANDOM_SEED = 4321
-WEIGHT_DECAY = 1e-4
+BATCH_SIZE = 2
+DATA_LIST_PATH = '/mnt/Data/Datasets/Autovision/v0beta/train.txt'
 PRETRAINED_MODEL = './model/icnet_cityscapes_trainval_90k_bnnomerge.npy'
 SNAPSHOT_DIR = './snapshots/'
-SAVE_NUM_IMAGES = 4
+SAVE_NUM_IMAGES = 2
 SAVE_PRED_EVERY = 400
+IGNORE_LABEL = 0
+INPUT_SIZE = '800,800'
+LEARNING_RATE = 1e-4
+MOMENTUM = 0.95
+NUM_CLASSES = 16
+NUM_STEPS = 200000
+POWER = 0.001
+RANDOM_SEED = 1234
+WEIGHT_DECAY = 1e-5
 
 USE_CLASS_WEIGHTS = False
 #CLASS_WEIGHTS = [1.0, 1.0, 1.0]
 
 #############################
 # Augmentations
-CROP_PROB = 0.5
-MIN_CROP = 0.6
+CROP_PROB = 0.7
+MIN_CROP = 0.3
 MAX_CROP = 1.0
 
-PAD_PROB = 0.05
+PAD_PROB = 0.01
 MIN_PAD = 1.1
-MAX_PAD = 1.6
+MAX_PAD = 1.5
 
-# FOCAL_PROB = 1.0
-# MIN_FOCAL = 600
-# MAX_FOCAL = 1000
 ##############################
 ##############################
 
@@ -60,19 +60,16 @@ LAMBDA3 = 1.0
 label_names = ['unlabeled', 'debris', 'sky', 'obstacle', 'ground', 'road',
                'building', 'pipe', 'building_material', 'big_vegetation', 'small_vegetation',
                'manhole', 'water', 'person', 'animal', 'vehicle']
-label_colours = [(0,  0, 0), (58, 156, 147), (0, 177, 247), (94, 30, 104), (191, 119, 56), (182, 179, 182),
+label_colours = [(0, 0, 0), (58, 156, 147), (0, 177, 247), (94, 30, 104), (191, 119, 56), (182, 179, 182),
                  (102, 102, 102), (243, 15, 190), (230, 225, 54), (60, 112, 60), (146, 243, 146),
                  (122, 3, 51), (164, 216, 255), (250, 0, 55), (178, 20, 50), (0, 30, 130)]
 
-# label_names = ['unlabeled', 'ground', 'road', 'sidewalk', 'rail track', 'building',
-#                'wall', 'fence', 'bridge', 'tunnel', 'pole', 'traffic light',
-#                'traffic sign', 'vegetation', 'terrain', 'person', 'car', 'truck', 'bus',
-#                'train', 'motorcycle']
-# label_colours = [(0,  0, 0), (128, 64,128), (244, 35,232), (250,170,160), (70, 70, 70), (102, 102,156),
-#                  (190,153,153), (180,165,180), (150,120, 90), (153,153,153), (250,170, 30),
-#                  (220,220,  0), (107,142, 35), (152,251,152), (80, 150, 250), (255,  0,  0),
-#                  (0, 60,100), (0,  0, 90), (0,  0,230), (119, 11, 32),  (0,  0,  255)]
-
+# label_names = ['Unlabeled', 'Sky', 'Sand', 'Ground', 'Building', 'Poo',
+#                'Ball', 'Rock or stone', 'Trees and bush', 'Golf grass', 'Wild grass',
+#                'Hole', 'Water', 'Person', 'Animal', 'Vehicle']
+# label_colours = [(0, 0, 0), (0, 177, 247), (94, 30, 104), (191, 119, 56), (102, 102, 102), (182, 179, 182),
+#                  (243, 15, 190), (230, 225, 54), (40, 140, 40), (146, 243, 146), (10, 250, 30),
+#                  (122, 3, 51), (164, 216, 255), (250, 0, 55), (178, 20, 50), (0, 30, 130)]
 
 def draw_color_scheme():
     font = cv2.FONT_HERSHEY_SIMPLEX

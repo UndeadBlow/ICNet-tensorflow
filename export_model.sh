@@ -1,6 +1,6 @@
-CHECKPOINT_FILE=/home/undead/reps/ICNetUB/snapshots/model.ckpt-12800
+CHECKPOINT_FILE=/home/undead/reps/ICNetUB/snapshots/model.ckpt-0
 TF_PATH=/home/undead/reps/tensorflow
-NAME=adas
+NAME=autovision_icnext_v5
 export CUDA_VISIBLE_DEVICES=""
 CUR_PATH=${PWD}
 

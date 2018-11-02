@@ -69,9 +69,9 @@ def calculate_perfomance(sess, input, raw_output, shape, runs = 1000, batch_size
 
 def get_arguments():
     parser = argparse.ArgumentParser(description="Reproduced PSPNet")
-    parser.add_argument("--img-path", type=str, default='',
-                        help="Path to the RGB image file.",
-                        required=True)
+    parser.add_argument("--input-path", type=str, default='....',
+                        help="Path to the RGB image file, dir with images or video",
+                        required=False)
     parser.add_argument("--save-dir", type=str, default=SAVE_DIR,
                         help="Path to save output.")
     parser.add_argument("--snapshots-dir", type=str, default=snapshot_dir,
@@ -80,6 +80,8 @@ def get_arguments():
                         help="Path to to pb file, alternative for checkpoint. If set, checkpoints will be ignored")
     parser.add_argument("--weighted", action="store_true", default=False,
                         help="If true, will output weighted images")
+    parser.add_argument("--double-screen", action="store_true", default=False,
+                        help="If true, will output double screen images")
     parser.add_argument("--model", type=str, default='ICNet_BN',
                         help="Model of network if restore from checkpoint")
     parser.add_argument("--batch-size", type=int, default=1,
@@ -148,6 +150,7 @@ def check_input(img):
     return img, shape
 
 def load_from_checkpoint(shape, path, model = 'ICNet_BN'):
+
     x = tf.placeholder(dtype = tf.float32, shape = shape)
     img_tf = preprocess(x)
     img_tf, n_shape = check_input(img_tf)
@@ -190,7 +193,8 @@ def load_from_checkpoint(shape, path, model = 'ICNet_BN'):
         load(loader, sess, ckpt.model_checkpoint_path)
     return sess, pred, x
 
-def load_from_pb(shape, path):
+def load_from_pb(path):
+
     segment_graph = tf.Graph()
     with segment_graph.as_default():
         seg_graph_def = tf.GraphDef()
@@ -212,65 +216,134 @@ def load_from_pb(shape, path):
             sess = tf.Session(graph = segment_graph, config = config)
             col = segment_graph.get_tensor_by_name('label_colours:0')
             nam = segment_graph.get_tensor_by_name('label_names:0')
-            label_colors, label_names = sess.run([col, nam])
-            print(label_colors, label_names)
+            shape_tensor = segment_graph.get_tensor_by_name('input_size:0')
+            label_colors, label_names, shape = sess.run([col, nam, shape_tensor])
+            print(label_colors, label_names, shape)
 
-    return sess, pred, x, label_colors, label_names
+    return sess, pred, x, label_colors, label_names, shape
 
 def main():
     args = get_arguments()
     
-    if args.img_path[-4] != '.':
-        files = GetAllFilesListRecusive(args.img_path, ['.jpg', '.jpeg', '.png', '.bmp'])
+    if args.input_path[-4] != '.':
+        files = GetAllFilesListRecusive(args.input_path, ['.jpg', '.jpeg', '.png', '.bmp'])
     else:
-        files = [args.img_path]
-
-    shape = INPUT_SIZE.split(',')
-    shape = (int(shape[0]), int(shape[1]), 3)
-
+        files = [args.input_path]
+    print('files', files)
     if args.pb_file == '':
         sess, pred, x = load_from_checkpoint(shape, args.snapshots_dir, args.model)
     else:
-        sess, pred, x, label_colors, label_names = load_from_pb(shape, args.pb_file)
+        sess, pred, x, label_colors, label_names, shape = load_from_pb(args.pb_file)
+    if len(files) == 1:
+        #shape = INPUT_SIZE.split(',')
+        #shape = (int(shape[0]), int(shape[1]), 3)
 
-    if args.measure_time:
-        calculate_perfomance(sess, x, pred, shape, args.runs, args.batch_size)
-        quit()
 
-    for path in files:
 
-        img, filename = load_img(path)
+        if args.measure_time:
+            calculate_perfomance(sess, x, pred, shape, args.runs, args.batch_size)
+            quit()
 
-        orig_img = cv2.imread(path)
+        
+        if '.mp4' in files[0] or '.avi' in files[0]:
 
-        if args.pb_file != '':
-            img = np.expand_dims(img, axis = 0)
+            cap = cv2.VideoCapture(files[0])
+            out_filename = files[0][:-4] + '_out.avi'
+            out_cap = None
+            index = 0
 
-        t = time.time()
-        preds = sess.run(pred, feed_dict = {x: img})
+            while(cap.isOpened()):
+                
+                print('Frame', index)
 
-        print('time: ', time.time() - t)
-        print('output shape: ', preds.shape)
+                orig_frames = []
+                frames = []
+                while len(frames) < args.batch_size:
+                    ret, frame = cap.read()
+                    orig_img = copy.deepcopy(frame)
+                    frame = cv2.resize(frame, (int(shape[0]), int(shape[1])))
+                    #frame = np.expand_dims(frame, axis = 0)
+                    orig_frames.append(orig_img)
+                    frames.append(frame)
 
-        msk = decode_labels(preds, num_classes = len(label_colors), label_colours = label_colors)
-        im = msk[0]
-        im = cv2.resize(im, (orig_img.shape[1], orig_img.shape[0]), interpolation = cv2.INTER_NEAREST)
-        print('im', im.shape)
+                if out_cap == None:
+                    print('out_filename:', out_filename)
+                    fps = cap.get(cv2.CAP_PROP_FPS)
+                    print('fps', fps)
+                    out_shape = (int(cap.get(3)), int(cap.get(4)))
+                    out_cap = cv2.VideoWriter(out_filename, cv2.VideoWriter_fourcc(*"mjpg"), int(fps), out_shape, 1)
 
-        if not os.path.exists(args.save_dir):
-            os.makedirs(args.save_dir)
+                t = time.time()
+                preds = sess.run(pred, feed_dict = {x: frames})
+                print('time: ', time.time() - t)
 
-        im = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
-        #img = cv2.cvtColor(orig_img, cv2.COLOR_RGB2BGR)
-        img = orig_img
+                for i in range(len(preds)):
 
-        if args.weighted:
-            indx = (im == [0, 0, 0])
-            print(im.shape, img.shape)
-            im = cv2.addWeighted(im, 0.8, img, 0.2, 0)
-            im[indx] = img[indx]
+                    p = preds[i]
+                    orig_img = orig_frames[i]
+                    index = index + 1
+                    t = time.time()
+                    msk = decode_labels(np.array([p]), num_classes = len(label_colors), label_colours = label_colors)
+                    im = msk[0]
+                    im = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
 
-        cv2.imwrite(args.save_dir + filename.replace('.jpg', '.png'), im)
+                    if args.weighted:
+                        im = cv2.resize(im, (out_shape[0], out_shape[1]))
+                        indx = (im == [0, 0, 0])
+                        im = cv2.addWeighted(im, 0.8, orig_img, 0.2, 0)
+                        im[indx] = orig_img[indx]
+                    elif args.double_screen:
+                        w = int(out_shape[0] / 2)
+                        h = out_shape[1]# / 2
+                        im = cv2.resize(im, (w, h))
+                        orig_img = cv2.resize(orig_img, (w, h))
+                        im = np.concatenate((orig_img, im), axis=1)
+
+                    out_cap.write(im)
+
+    else:
+        
+        for path in files:
+            print(path)
+
+            img, filename = load_img(path)
+
+            orig_img = cv2.imread(path)
+
+            if args.pb_file != '':
+                img = np.expand_dims(img, axis = 0)
+
+            t = time.time()
+            preds = sess.run(pred, feed_dict = {x: img})
+
+            print('time: ', time.time() - t)
+            print('output shape: ', preds.shape)
+
+            msk = decode_labels(preds, num_classes = len(label_colors), label_colours = label_colors)
+            im = msk[0]
+            im = cv2.resize(im, (orig_img.shape[1], orig_img.shape[0]), interpolation = cv2.INTER_NEAREST)
+            print('im', im.shape)
+
+            if not os.path.exists(args.save_dir):
+                os.makedirs(args.save_dir)
+
+            im = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
+            #img = cv2.cvtColor(orig_img, cv2.COLOR_RGB2BGR)
+            img = orig_img
+
+            if args.weighted:
+                indx = (im == [0, 0, 0])
+                print(im.shape, img.shape)
+                im = cv2.addWeighted(im, 0.8, img, 0.2, 0)
+                im[indx] = img[indx]
+            elif args.double_screen:
+                w = orig_img.shape[1]
+                h = orig_img.shape[0]# / 2
+                im = cv2.resize(im, (w, h))
+                #orig_img = cv2.resize(orig_img, (w, h))
+                im = np.concatenate((orig_img, im), axis=1)
+
+            cv2.imwrite(args.save_dir + '/' + filename.replace('.jpg', '.png'), im)
 
 if __name__ == '__main__':
     main()

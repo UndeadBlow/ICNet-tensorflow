@@ -17,6 +17,7 @@ import json
 import gc
 
 from pathos.multiprocessing import ProcessingPool as Pool
+pool = Pool(processes=4)
 
 def pure_name(name):
     name = name[name.rfind('/') + 1 : name.rfind('.')]
@@ -40,6 +41,11 @@ custom_label_colours = [(0, 0, 0), (128, 64, 128), (244, 35, 231), (69, 69, 69)
                 # 11 = car, 12 = road mark
                 ,(0, 0, 230)]
                 # 13 = bike
+                
+autovision_label_colours = [(0,  0, 0), (58, 156, 147), (0, 177, 247), (94, 30, 104), (191, 119, 56), (182, 179, 182),
+                            (102, 102, 102), (243, 15, 190), (230, 225, 54), (60, 112, 60), (146, 243, 146),
+                            (122, 3, 51), (164, 216, 255), (250, 0, 55), (178, 20, 50), (0, 30, 130)]
+
 
 # label_only_mark = [(0, 0, 0), (128, 64, 128), (244, 35, 231), (69, 69, 69)
 #                 # 0 void label, 1 = road, 2 = sidewalk, 3 = building
@@ -64,6 +70,22 @@ deeplab_label_colours = [(0, 0, 0), (128, 64, 128), (244, 35, 231), (69, 69, 69)
                 # 15 = truck, 16 = train, 17 = motocycle
                 ,(119, 10, 32), (150, 50, 200)]
                 # 18 = bicycle, 19 = tunnel
+
+
+autovision_to_autovision = {
+    'unlabeled' : 'unlabeled',
+     'debris' : 'debris',
+      'sky' : 'sky',
+       'obstacle' : 'obstacle',
+        'ground' : 'ground',
+         'road' : 'road',
+               'building' : 'building',
+                'pipe' : 'pipe',
+                 'building_material' : 'building_material',
+                  'big_vegetation' : 'big_vegetation',
+                   'small_vegetation' : 'small_vegetation',
+               'manhole' : 'manhole', 'water' : 'water', 'person' : 'person', 'animal' : 'animal', 'vehicle' : 'vehicle'
+}
 
 camvid_to_city_map = {'Animal' : 'unlabeled',
 'Archway' : 'building',
@@ -564,7 +586,7 @@ def load_color_map(filename):
             line = line.replace('\t\t', ' ')
             line = line.replace('\t', ' ')
             items = line.split(' ')
-
+            print(items)
             color = [int(item.strip()) for item in items[: 3]]
             name = ' '.join(items[3 : ]).strip()
             colormap[name] = color
@@ -648,7 +670,7 @@ def convert_colors_to_index(path_orig, colormap_original, colormap_dist, names_m
     orig_map = load_color_map(colormap_original)
     dist_map = load_color_map(colormap_dist)
 
-    files = navmii_utils.GetAllFilesListRecusive(path_orig, ['.jpeg', '.png', '.jpg'])
+    files = navmii_utils.GetAllFilesListRecusive(path_orig, ['.jpeg', '.png', '.jpg', '.JPG', '.JPEG'])
 
     filenames = list([f for f in files if mask in f])
 
@@ -693,7 +715,7 @@ def _process_convert_to_index(filename, names_map, orig_map, dist_map, must_have
         i = colors_indeces[orig_name]
 
         print(orig_name, len(i[0]), color)
-        index = label_only_mark.index((color[0], color[1], color[2]))
+        index = autovision_label_colours.index((color[0], color[1], color[2]))
 
         #img[np.where((img == orig_color).all(axis = 2))] = color
         img[i] = index
@@ -971,20 +993,20 @@ def merge_vistas_into_dir(images_path, labels_path, dist, names_map, orig_map, d
         f.write(list_out)
 
 
-def create_list(path, outfile, ext):
+def create_list(path, outfile, ext, postfix = '_L'):
     images = navmii_utils.GetAllFilesListRecusive(path, [ext])
-    l_images = [im for im in images if '_L' in im]
-    r_images = [im for im in images if not '_L' in im]
+    l_images = [im for im in images if postfix in im]
+    r_images = [im for im in images if not postfix in im]
 
     output = ''
     for r_im in r_images:
-        l_im = r_im.replace(ext, '_L.png')
+        l_im = r_im.replace(ext, postfix + '.png')
         output = output + r_im + ' ' + l_im + '\n'
 
     with open(outfile, 'w') as f:
         f.write(output)
 
-def check(path):
+def check(path, postfix = '_L'):
     images = navmii_utils.GetAllFilesListRecusive(path, ['.jpeg', '.png', '.jpg'])
 
     for img in images:
@@ -994,9 +1016,9 @@ def check(path):
         except:
             os.remove(img)
             if '.jpg' in img:
-                img = img.replace('.jpg', '_L.png')
+                img = img.replace('.jpg', postfix + '.png')
             if '.jpeg' in img:
-                img = img.replace('.jpg', '_L.png')
+                img = img.replace('.jpg', postfix + '.png')
             os.remove(img)
 
 def calc_mean(path, ignore_mask = '_L'):
@@ -1083,15 +1105,17 @@ if __name__ == '__main__':
     # check('/mnt/Data/Datasets/Segmentation/Cityscapes/remapped')
     # check('/mnt/Data/Datasets/Segmentation/Apollo/remapped')
 
-    create_list('/home/dlserver/datasets/cityscaped',
-              '/home/dlserver/datasets/city_plain_train.txt', '.jpg')
-    create_list('/home/dlserver/datasets/cityscaped_valid',
-              '/home/dlserver/datasets/city_valid_plain.txt', '.jpg')
-    create_list('/home/dlserver/datasets/remapped',
-               '/home/dlserver/datasets/cityscape_plain_train.txt', '.png')
-    create_list('/home/dlserver/datasets/remapped_apollo',
-              '/home/dlserver/datasets/apollo_plain_train.txt', '.jpg')
+    # path_orig, colormap_original, colormap_dist, names_map, mask = '')
+    convert_colors_to_index('/mnt/Data/Datasets/Autovision/v0beta/testset', 
+                            '/mnt/Data/Datasets/Autovision/v0beta/autovision_color_map.txt',
+                            '/mnt/Data/Datasets/Autovision/v0beta/autovision_color_map.txt',
+                            autovision_to_autovision, mask = '_mask0')
 
+    create_list('/mnt/Data/Datasets/Autovision/v0beta/trainset',
+              '/mnt/Data/Datasets/Autovision/v0beta/train.txt', ext = '.png', postfix = '_mask0')
+    create_list('/mnt/Data/Datasets/Autovision/v0beta/testset',
+              '/mnt/Data/Datasets/Autovision/v0beta/test.txt', ext = '.png', postfix = '_mask0')
+              
     # merge_apollo_into_dir_indeces('/mnt/Data/Datasets/Segmentation/Apollo',
     #                               '/mnt/Data/Datasets/Segmentation/Apollo/remapped',
     #                               orig_map = '/mnt/Data/Datasets/Segmentation/Apollo/index_map.txt',

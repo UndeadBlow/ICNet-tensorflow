@@ -58,12 +58,10 @@ def random_crop_and_pad_image_and_labels(image, label, crop_h, crop_w, pad_h, pa
     combined = tf.concat(axis = 2, values = [image, label])
     
     last_image_dim = tf.shape(image)[-1]
-    #last_label_dim = tf.shape(label)[-1]
 
     use_crop = tf.random_uniform(shape = [1], minval = 0.0, maxval = 1.0, dtype = tf.float32)[0]
     use_pad = tf.random_uniform(shape = [1], minval = 0.0, maxval = 1.0, dtype = tf.float32)[0]
-    #use_zoom = tf.random_uniform(shape = [1], minval = 0.0, maxval = 1.0, dtype = tf.float32)[0]
-    #focal_len = tf.random_uniform(shape = [1], minval = MIN_FOCAL, maxval = MAX_FOCAL, dtype = tf.float32)[0]
+
     crop_size = tf.stack([crop_h, crop_w, 4], axis = 0)
     
     rows_shift = tf.cast((pad_h - input_size[1]) / 2, dtype = tf.int32)
@@ -71,10 +69,7 @@ def random_crop_and_pad_image_and_labels(image, label, crop_h, crop_w, pad_h, pa
     pads = tf.stack([[rows_shift, rows_shift], [cols_shift, cols_shift], [0, 0]])
 
     combined_crop = tf.cond(use_crop > CROP_PROB, lambda : combined, lambda : tf.random_crop(combined, crop_size))
-    combined_crop = tf.cond(use_pad > PAD_PROB, lambda : combined_crop, lambda : tf.pad(combined_crop, pads))
-    # print('construct zoom')
-    # combined_crop = tf.cond(use_zoom > PAD_PROB, lambda : combined_crop, lambda : generate_zooms.get_fisheyed(combined_crop, focal_len))
-    # print('zoom construction done')
+    combined_crop = tf.cond(use_pad > PAD_PROB, lambda : combined_crop, lambda : tf.pad(combined_crop, pads, mode = 'CONSTANT', constant_values = 0))
 
     img_crop = combined_crop[:, :, :last_image_dim]
     label_crop = combined_crop[:, :, last_image_dim:]
@@ -146,8 +141,8 @@ def read_images_from_disk(input_queue, input_size, random_scale, random_mirror, 
     h, w = input_size
 
     # Randomly scale the images and labels.
-    # if random_scale:
-    #     img, label = image_scaling(img, label)
+    #if random_scale:
+    #    img, label = image_scaling(img, label)
 
     # Randomly mirror the images and labels.
     if random_mirror:

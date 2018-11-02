@@ -57,11 +57,11 @@ def main(_):
         print(img_tf)
         # Create network.
         #net = psp_net({'inputs': img_tf}, is_training = False, num_classes = NUM_CLASSES)
-        net = unext(img_tf, is_train = False, n_out = NUM_CLASSES)
-        #net = ICNet_BN({'data': img_tf}, is_training = False, num_classes = NUM_CLASSES)
+        #net = unext(img_tf, is_train = False, n_out = NUM_CLASSES)
+        net = ICNext({'data': img_tf}, is_training = False, num_classes = NUM_CLASSES)
 
-        raw_output = net.outputs
-        #raw_output = net.layers['conv6']
+        #raw_output = net.outputs
+        raw_output = net.layers['conv6']
         output = tf.image.resize_bilinear(raw_output, tf.shape(img_tf)[1:3,], name = 'raw_output')
         output = tf.argmax(output, dimension = 3)
         pred = tf.expand_dims(output, dim = 3, name = 'indices')

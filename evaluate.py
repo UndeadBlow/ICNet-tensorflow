@@ -10,7 +10,7 @@ from PIL import Image
 import tensorflow as tf
 import numpy as np
 
-from model import ICNet_BN
+from model import *
 from tensorlayer_nets import *
 from tools import decode_labels
 from image_reader import ImageReader
@@ -29,7 +29,7 @@ def calc_size(filename):
 
 SAVE_DIR = './output/'
 
-DATA_LIST_PATH = '/mnt/Data/Datasets/Segmentation/mapillary-vistas-dataset_public_v1.0/valid.txt'
+DATA_LIST_PATH = '/mnt/Data/Datasets/Autovision/v0beta/test.txt'
 
 snapshot_dir = './snapshots'
 best_models_dir = './best_models'
@@ -42,7 +42,7 @@ INTERVAL = 120
 INPUT_SIZE = INPUT_SIZE.split(',')
 INPUT_SIZE = [int(INPUT_SIZE[0]), int(INPUT_SIZE[1])]
 IGNORE_LABEL = IGNORE_LABEL
-batch_size = 6
+batch_size = 1
 
 
 def get_arguments():
@@ -141,12 +141,12 @@ def evaluate_checkpoint(model_path, args):
     threads = tf.train.start_queue_runners(coord = coord, sess = sess)
 
     # Create network.
-    #net = ICNet_BN({'data': image_batch}, is_training = False, num_classes = num_classes)
-    net = unext(image_batch, is_train = False, n_out = NUM_CLASSES)
+    net = ICNext({'data': image_batch}, is_training = False, num_classes = num_classes)
+    #net = unext(image_batch, is_train = False, n_out = NUM_CLASSES)
 
     # Predictions.
-    #raw_output = net.layers['conv6']
-    raw_output = net.outputs
+    raw_output = net.layers['conv6']
+    #raw_output = net.outputs
 
     raw_output_up = tf.image.resize_bilinear(raw_output, size = INPUT_SIZE, align_corners = True)
     raw_output_up = tf.argmax(raw_output_up, dimension = 3)
