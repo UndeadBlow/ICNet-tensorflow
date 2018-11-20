@@ -9,6 +9,8 @@ sys.path.append('./datasets')
 import argparse
 import os
 import copy
+import uuid
+from skimage import measure
 
 import time
 from PIL import Image
@@ -77,7 +79,11 @@ def get_arguments():
     parser.add_argument("--snapshots-dir", type=str, default=snapshot_dir,
                         help="Path to checkpoints.")
     parser.add_argument("--pb-file", type=str, default='',
-                        help="Path to to pb file, alternative for checkpoint. If set, checkpoints will be ignored")
+                        help="Path to .pb file, alternative for checkpoint. If set, checkpoints will be ignored")
+    parser.add_argument("--class-pb-file", type=str, default='',
+                        help="Path to classification .pb file if needed")
+    parser.add_argument("--save-classes", type=str, default='',
+                        help="Path to save classification work if set")
     parser.add_argument("--weighted", action="store_true", default=False,
                         help="If true, will output weighted images")
     parser.add_argument("--double-screen", action="store_true", default=False,
@@ -93,6 +99,41 @@ def get_arguments():
 
 
     return parser.parse_args()
+
+def load_classification_pb(class_filename, mem_frac = 0.5, input_name = 'input', 
+                           output_name = 'InceptionV4/Logits/Predictions:0', # 'MobilenetV1/Predictions/Reshape_1:0',
+                           type = tf.float32):
+    
+    # Load classification model
+    classification_graph = tf.Graph()
+    with classification_graph.as_default():
+        class_graph_def = tf.GraphDef()
+        with tf.gfile.GFile(class_filename, 'rb') as fid:
+            serialized_graph = fid.read()
+            class_graph_def.ParseFromString(serialized_graph)
+            
+            class_image = tf.placeholder(type, shape=(None, None, None, 3))
+            
+            tf.import_graph_def(class_graph_def, {input_name : class_image}, name = '')
+            predictions = classification_graph.get_tensor_by_name(output_name)
+
+            config = tf.ConfigProto()
+            config.gpu_options.per_process_gpu_memory_fraction = mem_frac
+            config.allow_soft_placement = True
+            config.log_device_placement = False
+            sess = tf.Session(graph = classification_graph, config = config)
+
+            width = None
+            height = None
+            labels = None
+            
+            shape_tensor = classification_graph.get_tensor_by_name('input_size:0')
+            labels_tensor = classification_graph.get_tensor_by_name('label_names:0')
+            shape, labels = sess.run([shape_tensor, labels_tensor])
+            width, height, _ = shape
+            print(shape, labels)
+
+    return class_image, predictions, classification_graph, sess, width, height, labels
 
 def save(saver, sess, logdir, step):
    model_name = 'model.ckpt'
@@ -148,6 +189,63 @@ def check_input(img):
         shape = [ori_h, ori_w]
 
     return img, shape
+
+
+def draw_bounding_box_on_image(image,
+                               ymin,
+                               xmin,
+                               ymax,
+                               xmax,
+                               color=[255, 0, 0],
+                               thickness=4,
+                               display_str_list=(),
+                               use_normalized_coordinates=True):
+  
+  im_height, im_width, _ = image.shape
+  color = (int(color[2]), int(color[1]), int(color[0]))
+
+  if use_normalized_coordinates:
+    (left, right, top, bottom) = ((float(xmin) * im_width), (float(xmax) * im_width),
+                                  (float(ymin) * im_height), (float(ymax) * im_height))
+  else:
+    (left, right, top, bottom) = (xmin, xmax, ymin, ymax)
+
+  cv2.rectangle(image, (int(left), int(top)), (int(right), int(bottom)), color, thickness = thickness)
+  
+  font = cv2.FONT_HERSHEY_SIMPLEX
+  font_scale = 0.7 * (thickness - 1)
+
+  # If the total height of the display strings added to the top of the bounding
+  # box exceeds the top of the image, stack the strings below the bounding box
+  # instead of above.
+  display_str_heights = [cv2.getTextSize(ds, font, font_scale, thickness - 1)[0][1] for ds in display_str_list]
+  # Each display_str has a top and bottom margin of 0.05x.
+  total_display_str_height = (1 + 2 * 0.05) * sum(display_str_heights)
+
+  if top > total_display_str_height:
+    text_bottom = top
+  else:
+    text_bottom = bottom + total_display_str_height / 2.0
+  # Reverse list and print from bottom to top.
+
+  for display_str in display_str_list[::-1]:
+    text_width, text_height = cv2.getTextSize(display_str, font, font_scale, thickness - 1)[0]
+    text_width = text_width
+    
+    margin = np.ceil(0.05 * text_height)
+
+    cv2.rectangle(image, (int(left - margin), int(text_bottom - text_height - margin)), (int(left + text_width + margin * 2),
+                                                          int(text_bottom + margin * 3)), color, cv2.FILLED)
+                                                          
+    if len(display_str) < 2:
+          return
+
+    cv2.putText(image,
+        display_str,
+        (int(left + margin), int(text_bottom + margin)),
+        font, font_scale, (0, 0, 0), thickness = thickness - 1)
+
+
 
 def load_from_checkpoint(shape, path, model = 'ICNet_BN'):
 
@@ -222,6 +320,50 @@ def load_from_pb(path):
 
     return sess, pred, x, label_colors, label_names, shape
 
+def cast_box(orig_frame, new_frame, box):
+    '''
+        Cast coords from the first box coords to second
+    '''
+    f_h, f_w, _ = orig_frame.shape
+    s_h, s_w, _ = new_frame.shape
+    delta_w = s_w / f_w
+    delta_h = s_h / f_h
+
+    # x, y, w, h
+    box = list(box)
+    box[0] = int(box[0] * delta_w)
+    box[1] = int(box[1] * delta_h)
+    box[2] = int(box[2] * delta_w)
+    box[3] = int(box[3] * delta_h)
+
+    return box
+
+
+def get_objects_from_segmentation(mask, color, min_size_px = 100, indent_percents = 0.3, neighbors = 4):
+
+    thresh = cv2.inRange(mask, color, color)
+
+    labels = measure.label(thresh, neighbors = neighbors, background = 0)
+    
+    rects = []
+        
+    for label in np.unique(labels):
+        if label == 0:
+            continue
+        rows, cols = np.where(labels == label)
+        if len(cols):
+            poly = np.vstack((cols, rows)).T
+            poly = poly.reshape((-1, 1, 2))
+            x, y, w, h = cv2.boundingRect(poly)
+            x = max(x - int((w * indent_percents) / 2), 0)
+            y = max(y - int((h * indent_percents) / 2), 0)
+            w = min(w + int((w * indent_percents) / 2), mask.shape[1])
+            h = min(h + int((h * indent_percents) / 2), mask.shape[0])
+            if w >= min_size_px and h >= min_size_px:
+                rects.append((x, y, w, h))
+
+    return rects
+
 def main():
     args = get_arguments()
     
@@ -234,11 +376,16 @@ def main():
         sess, pred, x = load_from_checkpoint(shape, args.snapshots_dir, args.model)
     else:
         sess, pred, x, label_colors, label_names, shape = load_from_pb(args.pb_file)
+
+    class_sess = None
+    if args.class_pb_file:
+        class_image, class_preds, class_graph,\
+        class_sess, class_width, class_height,\
+        class_labels = load_classification_pb(args.class_pb_file, output_name = 'MobilenetV1/Predictions/Reshape_1:0')
+
     if len(files) == 1:
         #shape = INPUT_SIZE.split(',')
         #shape = (int(shape[0]), int(shape[1]), 3)
-
-
 
         if args.measure_time:
             calculate_perfomance(sess, x, pred, shape, args.runs, args.batch_size)
@@ -286,6 +433,40 @@ def main():
                     msk = decode_labels(np.array([p]), num_classes = len(label_colors), label_colours = label_colors)
                     im = msk[0]
                     im = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
+
+                    if class_sess:
+                        objects = get_objects_from_segmentation(im, color = np.array([130, 30, 0]) )
+                        for obj in objects:
+                            orig_box = cast_box(im, orig_img, obj)
+                            prepared_frame = orig_img[orig_box[1] : orig_box[1] + orig_box[3],
+                                                      orig_box[0] : orig_box[0] + orig_box[2]]
+                            print(orig_img.shape, im.shape, prepared_frame.shape, class_width, class_height, obj, orig_box)
+                            #cv2.imshow('2', prepared_frame);cv2.waitKey(0)
+
+                            if args.save_classes:
+                                orig_class_subframe = copy.deepcopy(prepared_frame)
+
+                            prepared_frame = cv2.resize(prepared_frame, (class_width, class_height))
+                            
+                            prepared_frame = prepared_frame / 255.0
+                            prepared_frame = prepared_frame - 0.5
+                            prepared_frame = prepared_frame * 2.0
+                            prediction = class_sess.run([class_preds], feed_dict = {class_image: [prepared_frame]})[0][0]
+                            indx = np.argmax(prediction)
+                            print(class_labels[indx], obj)
+
+                            if args.save_classes:
+                                path = os.path.join(args.save_classes, class_labels[indx].decode('utf8'))
+                                if not os.path.exists(path):
+                                    os.makedirs(path)
+                                path = os.path.join(path, str(uuid.uuid1()))
+                                print('path', path)
+                                cv2.imwrite(path + '.png', orig_class_subframe)
+
+                            draw_bounding_box_on_image(im, obj[1], obj[0], obj[1] + obj[3], obj[0] + obj[2], 
+                                                       display_str_list = [class_labels[indx].decode("utf-8")],
+                                                       use_normalized_coordinates = False, thickness = 2)
+                            #cv2.imshow('1', im);cv2.waitKey(0)
 
                     if args.weighted:
                         im = cv2.resize(im, (out_shape[0], out_shape[1]))

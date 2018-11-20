@@ -9,7 +9,11 @@ import zipfile
 from PIL import Image
 import tensorflow as tf
 import numpy as np
-
+import sys
+from pathlib import Path
+sys.path.append('./bisenet')
+from bisenet.models.BiSeNet import build_bisenet
+import bisenet.utils.helpers as helpers
 from model import *
 from tensorlayer_nets import *
 from tools import decode_labels
@@ -29,7 +33,7 @@ def calc_size(filename):
 
 SAVE_DIR = './output/'
 
-DATA_LIST_PATH = '/mnt/Data/Datasets/Autovision/v0beta/golf_test.txt'
+DATA_LIST_PATH = '/mnt/Data/Datasets/Autovision/v0beta/test.txt'
 
 snapshot_dir = './snapshots'
 best_models_dir = './best_models'
@@ -141,14 +145,13 @@ def evaluate_checkpoint(model_path, args):
     threads = tf.train.start_queue_runners(coord = coord, sess = sess)
 
     # Create network.
-    net = ICNext({'data': image_batch}, is_training = False, num_classes = num_classes)
-    #net = unext(image_batch, is_train = False, n_out = NUM_CLASSES)
+    net, init_fn = build_bisenet(image_batch, num_classes, pretrained_dir = './bisenet/utils/models', is_training = False)
 
     # Predictions.
-    raw_output = net.layers['conv6']
+    #raw_output = net.layers['conv6']
     #raw_output = net.outputs
 
-    raw_output_up = tf.image.resize_bilinear(raw_output, size = INPUT_SIZE, align_corners = True)
+    raw_output_up = tf.image.resize_bilinear(net, size = INPUT_SIZE, align_corners = True)
     raw_output_up = tf.argmax(raw_output_up, dimension = 3)
     pred = tf.expand_dims(raw_output_up, dim = 3)
 

@@ -46,6 +46,9 @@ autovision_label_colours = [(0,  0, 0), (58, 156, 147), (0, 177, 247), (94, 30, 
                             (102, 102, 102), (243, 15, 190), (230, 225, 54), (60, 112, 60), (146, 243, 146),
                             (122, 3, 51), (164, 216, 255), (250, 0, 55), (178, 20, 50), (0, 30, 130)]
 
+golf_label_colours = [(0, 0, 0), (0, 177, 247), (94, 30, 104), (191, 119, 56), (102, 102, 102), (182, 179, 182),
+                 (243, 15, 190), (230, 225, 54), (40, 140, 40), (146, 243, 146), (10, 250, 30),
+                 (122, 3, 51), (164, 216, 255), (250, 0, 55), (178, 20, 50), (0, 30, 130)]
 
 # label_only_mark = [(0, 0, 0), (128, 64, 128), (244, 35, 231), (69, 69, 69)
 #                 # 0 void label, 1 = road, 2 = sidewalk, 3 = building
@@ -85,6 +88,12 @@ autovision_to_autovision = {
                   'big_vegetation' : 'big_vegetation',
                    'small_vegetation' : 'small_vegetation',
                'manhole' : 'manhole', 'water' : 'water', 'person' : 'person', 'animal' : 'animal', 'vehicle' : 'vehicle'
+}
+
+golf_to_golf = {
+    'unlabeled' : 'unlabeled', 'sky' : 'sky', 'sand' : 'sand', 'ground' : 'ground', 'building' : 'building', 'poo' : 'poo',
+               'ball' : 'ball', 'rock_stone' : 'rock_stone', 'tree_bush' : 'tree_bush', 'golf_grass' : 'golf_grass', 'wild_grass' : 'wild_grass',
+               'hole' : 'hole', 'water' : 'water', 'person' : 'person', 'animal' : 'animal', 'vehicle' : 'vehicle'
 }
 
 camvid_to_city_map = {'Animal' : 'unlabeled',
@@ -715,7 +724,7 @@ def _process_convert_to_index(filename, names_map, orig_map, dist_map, must_have
         i = colors_indeces[orig_name]
 
         print(orig_name, len(i[0]), color)
-        index = autovision_label_colours.index((color[0], color[1], color[2]))
+        index = golf_label_colours.index((color[0], color[1], color[2]))
 
         #img[np.where((img == orig_color).all(axis = 2))] = color
         img[i] = index
@@ -1106,15 +1115,13 @@ if __name__ == '__main__':
     # check('/mnt/Data/Datasets/Segmentation/Apollo/remapped')
 
     # path_orig, colormap_original, colormap_dist, names_map, mask = '')
-    convert_colors_to_index('/mnt/Data/Datasets/Autovision/v0beta/testset', 
-                            '/mnt/Data/Datasets/Autovision/v0beta/autovision_color_map.txt',
-                            '/mnt/Data/Datasets/Autovision/v0beta/autovision_color_map.txt',
-                            autovision_to_autovision, mask = '_mask0')
+    # convert_colors_to_index('/mnt/Data/Datasets/Autovision/golf_toloka_index', 
+    #                         '/mnt/Data/Datasets/Autovision/v0beta/golf_color_map.txt',
+    #                         '/mnt/Data/Datasets/Autovision/v0beta/golf_color_map.txt',
+    #                         golf_to_golf, mask = '_mask0')
 
-    create_list('/mnt/Data/Datasets/Autovision/v0beta/trainset',
-              '/mnt/Data/Datasets/Autovision/v0beta/train.txt', ext = '.png', postfix = '_mask0')
-    create_list('/mnt/Data/Datasets/Autovision/v0beta/testset',
-              '/mnt/Data/Datasets/Autovision/v0beta/test.txt', ext = '.png', postfix = '_mask0')
+    create_list('/mnt/Data/Datasets/Autovision/golf_toloka_index',
+              '/mnt/Data/Datasets/Autovision/v0beta/golf_train.txt', ext = '.png', postfix = '_mask0')
               
     # merge_apollo_into_dir_indeces('/mnt/Data/Datasets/Segmentation/Apollo',
     #                               '/mnt/Data/Datasets/Segmentation/Apollo/remapped',

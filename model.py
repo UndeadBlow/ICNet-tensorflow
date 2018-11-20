@@ -1480,7 +1480,7 @@ class ICNet_BN(Network):
 
 
 class ICNext(Network):
-    def setup(self, is_training, num_classes, factor = 0.5):
+    def setup(self, is_training, num_classes, factor = 1.5):
         (self.feed('data')
              .interp(factor=0.5, name='data_sub2')
              .conv(3, 3, int(32 * factor), 2, 2, biased=False, padding='SAME', relu=False, name='conv1_1_3x3_s2')
@@ -1706,19 +1706,19 @@ class ICNext(Network):
         
         (self.feed('conv5_3/relu')
              .avg_pool(h, w, h, w, name='conv5_3_pool1')
-             .interp(size = shape, name='conv5_3_pool1_interp'))
+             .interp(size = shape, name='conv5_3_pool1_interp', force_resize = True))
 
         (self.feed('conv5_3/relu')
              .avg_pool(h/2, w/2, h/2, w/2, name='conv5_3_pool2')
-             .interp(size = shape, name='conv5_3_pool2_interp'))
+             .interp(size = shape, name='conv5_3_pool2_interp', force_resize = True))
 
         (self.feed('conv5_3/relu')
              .avg_pool(h/3, w/3, h/3, w/3, name='conv5_3_pool3')
-             .interp(size = shape, name='conv5_3_pool3_interp'))
+             .interp(size = shape, name='conv5_3_pool3_interp', force_resize = True))
 
         (self.feed('conv5_3/relu')
              .avg_pool(h/4, w/4, h/4, w/4, name='conv5_3_pool6')
-             .interp(size = shape, name='conv5_3_pool6_interp'))
+             .interp(size = shape, name='conv5_3_pool6_interp', force_resize = True))
 
         (self.feed('conv5_3/relu',
                    'conv5_3_pool6_interp',
@@ -1728,7 +1728,7 @@ class ICNext(Network):
              .add(name='conv5_3_sum')
              .conv(1, 1, int(256 * factor), 1, 1, biased=False, relu=False, name='conv5_4_k1')
              .batch_normalization(relu=True, name='conv5_4_k1_bn')
-             .interp(factor=2.0, name='conv5_4_interp')
+             .interp(factor=2.0, name='conv5_4_interp', force_resize = True)
              .zero_padding(paddings=2, name='padding17')
              .atrous_conv(3, 3, int(128 * factor), 2, biased=False, relu=False, name='conv_sub4')
              .batch_normalization(relu=False, name='conv_sub4_bn'))
@@ -1741,7 +1741,7 @@ class ICNext(Network):
                    'conv3_1_sub2_proj_bn')
              .add(name='sub24_sum')
              .relu(name='sub24_sum/relu')
-             .interp(factor=2.0, name='sub24_sum_interp')
+             .interp(factor=2.0, name='sub24_sum_interp', force_resize = True)
              .zero_padding(paddings=2, name='padding18')
              .atrous_conv(3, 3, int(128 * factor), 2, biased=False, relu=False, name='conv_sub2')
              .batch_normalization(relu=False, name='conv_sub2_bn'))
@@ -1760,7 +1760,7 @@ class ICNext(Network):
                    'conv3_sub1_proj_bn')
              .add(name='sub12_sum')
              .relu(name='sub12_sum/relu')
-             .interp(factor=2.0, name='sub12_sum_interp')
+             .interp(factor=2.0, name='sub12_sum_interp', force_resize = True)
              .conv(1, 1, num_classes, 1, 1, biased=True, relu=False, name='conv6'))
 
         (self.feed('conv5_4_interp')

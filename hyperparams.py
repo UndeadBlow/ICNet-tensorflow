@@ -8,8 +8,8 @@ import math
 #  Mean taken from Mapilary Vistas dataset
 IMG_MEAN = np.array((126.63854281333334, 123.24824418666667, 113.14331923666667), dtype = np.float32)
 
-BATCH_SIZE = 2
-DATA_LIST_PATH = '/mnt/Data/Datasets/Autovision/v0beta/train.txt'
+BATCH_SIZE = 8
+DATA_LIST_PATH = '/mnt/Data/Datasets/Autovision/v0beta/golf_train.txt'
 PRETRAINED_MODEL = './model/icnet_cityscapes_trainval_90k_bnnomerge.npy'
 SNAPSHOT_DIR = './snapshots/'
 SAVE_NUM_IMAGES = 2
@@ -22,7 +22,7 @@ NUM_CLASSES = 16
 NUM_STEPS = 200000
 POWER = 0.001
 RANDOM_SEED = 1234
-WEIGHT_DECAY = 1e-5
+WEIGHT_DECAY = 1e-4
 
 USE_CLASS_WEIGHTS = False
 #CLASS_WEIGHTS = [1.0, 1.0, 1.0]
@@ -30,7 +30,7 @@ USE_CLASS_WEIGHTS = False
 #############################
 # Augmentations
 CROP_PROB = 0.7
-MIN_CROP = 0.3
+MIN_CROP = 0.4
 MAX_CROP = 1.0
 
 PAD_PROB = 0.01
@@ -57,19 +57,19 @@ LAMBDA3 = 1.0
 #                  (220,220,  0), (107,142, 35), (152,251,152), (80, 150, 250), (255,  0,  0),
 #                  (0, 60,100), (0,  0,  255)]
 
-label_names = ['unlabeled', 'debris', 'sky', 'obstacle', 'ground', 'road',
-               'building', 'pipe', 'building_material', 'big_vegetation', 'small_vegetation',
-               'manhole', 'water', 'person', 'animal', 'vehicle']
-label_colours = [(0, 0, 0), (58, 156, 147), (0, 177, 247), (94, 30, 104), (191, 119, 56), (182, 179, 182),
-                 (102, 102, 102), (243, 15, 190), (230, 225, 54), (60, 112, 60), (146, 243, 146),
-                 (122, 3, 51), (164, 216, 255), (250, 0, 55), (178, 20, 50), (0, 30, 130)]
-
-# label_names = ['Unlabeled', 'Sky', 'Sand', 'Ground', 'Building', 'Poo',
-#                'Ball', 'Rock or stone', 'Trees and bush', 'Golf grass', 'Wild grass',
-#                'Hole', 'Water', 'Person', 'Animal', 'Vehicle']
-# label_colours = [(0, 0, 0), (0, 177, 247), (94, 30, 104), (191, 119, 56), (102, 102, 102), (182, 179, 182),
-#                  (243, 15, 190), (230, 225, 54), (40, 140, 40), (146, 243, 146), (10, 250, 30),
+# label_names = ['unlabeled', 'debris', 'sky', 'obstacle', 'ground', 'road',
+#                'building', 'pipe', 'building_material', 'big_vegetation', 'small_vegetation',
+#                'manhole', 'water', 'person', 'animal', 'vehicle']
+# label_colours = [(0, 0, 0), (58, 156, 147), (0, 177, 247), (94, 30, 104), (191, 119, 56), (182, 179, 182),
+#                  (102, 102, 102), (243, 15, 190), (230, 225, 54), (60, 112, 60), (146, 243, 146),
 #                  (122, 3, 51), (164, 216, 255), (250, 0, 55), (178, 20, 50), (0, 30, 130)]
+
+label_names = ['unlabeled', 'sky', 'sand', 'ground', 'building', 'poo',
+               'ball', 'rock_stone', 'tree_bush', 'golf_grass', 'wild_grass',
+               'hole', 'water', 'person', 'animal', 'vehicle']
+label_colours = [(0, 0, 0), (0, 177, 247), (94, 30, 104), (191, 119, 56), (102, 102, 102), (182, 179, 182),
+                 (243, 15, 190), (230, 225, 54), (40, 140, 40), (146, 243, 146), (10, 250, 30),
+                 (122, 3, 51), (164, 216, 255), (250, 0, 55), (178, 20, 50), (0, 30, 130)]
 
 def draw_color_scheme():
     font = cv2.FONT_HERSHEY_SIMPLEX
